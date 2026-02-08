@@ -1,0 +1,89 @@
+IRIS VST V2 - System Functionality Report
+=========================================
+
+1. Spatial Logic & Weighting Calculation
+----------------------------------------
+The core of the spatial logic is implemented in `updateWeightsGaussian` and `timerCallback`.
+
+- **Coordinate System**:
+  - The plugin operates in a normalized 2D space (0.0 to 1.0) for both X and Y dimensions.
+  - `IRPoint` objects represent Impulse Response locations.
+  - A special `IRPoint` (isListener=true) represents the listener.
+
+- **Gaussian Weighting**:
+  - Weights are calculated based on the squared Euclidean distance ($d^2$) between each IR point and the "simulated" listener position (`currentListenerX`, `currentListenerY`).
+  - Formula: $w = \exp(-d^2 / (2 \cdot \sigma^2))$
+  - **Spread Parameter**: The standard deviation ($\sigma$) is derived from the user-facing `Spread` parameter (0.0 - 1.0) using a quadratic mapping:
+    $\sigma = 0.05 + 1.5 \cdot spread^2$
+    This allows for fine control at low spread values and wide coverage at high values.
+
+- **Active Set Selection (Optimization)**:
+  To limit CPU usage, only a subset of IRs are convolved at any time.
+  1.  **Ranking**: All IRs are ranked by their raw Gaussian weight.
+  2.  **Top K Selection**: The top $K_{min} = 4$ IRs are always active.
+  3.  **Hysteresis**: For IRs ranked 5th to 8th ($K_{max} = 8$), an activation hysteresis is applied to prevent rapid toggling:
+      - **Enter Threshold**: $w \ge \tau_{in} \cdot w_{max}$ (where $\tau_{in} = 0.1$)
+      - **Exit Threshold**: $w \ge \tau_{out} \cdot w_{max}$ (where $\tau_{out} = 0.05$)
+  4.  Only IRs in this "Active Set" are processed in the audio thread.
+
+- **Listener Inertia (Physics)**:
+  - The "simulated" listener position follows the UI listener position with a smoothing factor controlled by the `Inertia` parameter.
+  - High inertia results in slower movement, creating a "sluggish" or smooth transition effect as the listener moves through the space.
+
+2. IR Handling Logic
+--------------------
+Impulse Responses are managed via `addIRFromFile` in `PluginProcessorV2.cpp`.
+
+- **Loading**:
+  - Supports `.wav` and `.aiff` formats.
+  - Loaded into a `juce::AudioBuffer` (supports multi-channel source files).
+
+- **Preprocessing (On-Load)**:
+  When an IR file is loaded, it undergoes automatic preprocessing:
+  1.  **Onset Alignment**:
+      - Algorithm calculates the global peak magnitude.
+      - Sets a threshold at 10% of the peak.
+      - Scans for the first sample crossing this threshold.
+      - shifts the audio data to align this onset to sample 0 (trimming pre-delay).
+      - Applies a short (5ms) linear fade-in to avoid clicks at the start.
+  2.  **Normalization**:
+      - Calculates RMS of the trimmed signal.
+      - Applies gain to normalize the RMS to a target level of 0.1 (-20dB FS approx).
+      - This ensures consistent volume levels across different IR libraries.
+
+- **Channel Selection**:
+  - Users can select a specific channel from a multi-channel IR file to be used for the mono convolution engine.
+
+3. DSP Architecture
+-------------------
+The audio processing pipeline (`processBlock`) is strictly Mono-to-Mono.
+
+- **Convolution Engine**:
+  - Uses `juce::dsp::Convolution`.
+  - Convolves the input mono signal with the currently loaded active IR points.
+  - Each `ActiveIR` has its own convolution instance.
+
+- **Mixing & Smoothing**:
+  - **Weight Smoothing**: Target weights from the Gaussian logic are smoothed using a one-pole filter (coefficient active in `timerCallback`, approx 50ms time constant). This prevents zipper noise during movement.
+  - **Summation**:
+    - The output buffer is cleared.
+    - For each active IR, the convolution result is scaled by its smoothed, normalized weight.
+    - Results are accumulated: $Output = \sum (ConvolvedSignal_i \times NormalizedWeight_i)$.
+    - Weights are normalized such that their sum equals 1.0 (handled in `timerCallback` before passing to render state).
+
+- **Dry/Wet Mix**:
+  - A standard linear mix is applied at the final stage:
+    $FinalOutput = (1.0 - Mix) \cdot Input + Mix \cdot WetOutput$
+
+4. OSC Integration
+------------------
+- **Weights Output**:
+  - Sends normalized weights of the nearest neighbors to `/iris/weights`.
+  - Format: Pairs of `(String name, Float weight)`.
+  - Useful for visualizing active blending in external tools or UI.
+
+5. System Requirements
+----------------------
+- **Architecture**: macOS (arm64/x86_64).
+- **Format**: VST3.
+- **Dependencies**: JUCE Framework (dsp, osc, audio_utils).

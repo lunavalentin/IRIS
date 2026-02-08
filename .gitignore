@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Build outputs
+build/
+Builds/
+out/
+dist/
+*.dSYM/
+
+# IDE
+.vscode/
+.idea/
+*.xcworkspace/
+*.xcodeproj/
+*.sln
+*.vcxproj*
+*.user
+
+# Compiled objects
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Python (if any tooling)
+__pycache__/
+*.py[cod]

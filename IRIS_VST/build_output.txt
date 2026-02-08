@@ -1,0 +1,60 @@
+[ 31%] Built target IRIS_V2
+[ 34%] Built target IRIS_V2_vst3_helper
+[ 50%] Built target IRIS_V2_VST3
+[ 51%] Building CXX object CMakeFiles/IRIS3.dir/Source/V3/PluginProcessor.cpp.o
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:1:
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessorV3.h:62:16: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   62 |         if (l2 == 0) return std::sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
+      |             ~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessorV3.h:132:10: error: class member cannot be redeclared
+  132 |     void setPointLocked(juce::Uuid id, bool locked);
+      |          ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessorV3.h:126:10: note: previous declaration is here
+  126 |     void setPointLocked(juce::Uuid id, bool locked);
+      |          ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:16:33: error: incompatible pointer types assigning to 'std::atomic<float> *' from 'juce::AudioParameterFloat *'
+   16 |     addParameter(inertiaParam = new juce::AudioParameterFloat("inertia", "Inertia", 0.0f, 1.0f, 0.0f));
+      |                                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:17:32: error: incompatible pointer types assigning to 'std::atomic<float> *' from 'juce::AudioParameterBool *'
+   17 |     addParameter(freezeParam = new juce::AudioParameterBool("freeze", "Freeze", false));
+      |                                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:18:32: error: incompatible pointer types assigning to 'std::atomic<float> *' from 'juce::AudioParameterFloat *'
+   18 |     addParameter(spreadParam = new juce::AudioParameterFloat("spread", "Spread", 0.0f, 1.0f, 0.3f)); // Default 0.3 approx sigma 0.2
+      |                                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:19:29: error: incompatible pointer types assigning to 'std::atomic<float> *' from 'juce::AudioParameterFloat *'
+   19 |     addParameter(mixParam = new juce::AudioParameterFloat("mix", "Mix", 0.0f, 1.0f, 1.0f)); // Default Wet
+      |                             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:99:54: warning: unused parameter 'index' [-Wunused-parameter]
+   99 | void IrisVSTV3AudioProcessor::setCurrentProgram (int index)
+      |                                                      ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:103:65: warning: unused parameter 'index' [-Wunused-parameter]
+  103 | const juce::String IrisVSTV3AudioProcessor::getProgramName (int index)
+      |                                                                 ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:108:54: warning: unused parameter 'index' [-Wunused-parameter]
+  108 | void IrisVSTV3AudioProcessor::changeProgramName (int index, const juce::String& newName)
+      |                                                      ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:108:81: warning: unused parameter 'newName' [-Wunused-parameter]
+  108 | void IrisVSTV3AudioProcessor::changeProgramName (int index, const juce::String& newName)
+      |                                                                                 ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:157:97: warning: unused parameter 'midiMessages' [-Wunused-parameter]
+  157 | void IrisVSTV3AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+      |                                                                                                 ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:711:11: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+  711 |     if (d == 0) return false; // Parallel
+      |         ~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:733:12: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+  733 |     if (l2 == 0) { outX = x1; outY = y1; return; }
+      |         ~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:762:21: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+  762 |             if (len == 0) {
+      |                 ~~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:923:26: warning: implicit conversion turns floating-point number into integer: 'float' to 'bool' [-Wfloat-conversion]
+  923 |         if (freezeParam->load()) 
+      |         ~~  ~~~~~~~~~~~~~^~~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:1022:33: warning: implicit conversion turns floating-point number into integer: 'float' to 'bool' [-Wfloat-conversion]
+ 1022 |     if (changed || freezeParam->load()) { // if frozen we might want to update osc just in case? Or no.
+      |                 ~~ ~~~~~~~~~~~~~^~~~~~
+11 warnings and 5 errors generated.
+make[2]: *** [CMakeFiles/IRIS3.dir/Source/V3/PluginProcessor.cpp.o] Error 1
+make[1]: *** [CMakeFiles/IRIS3.dir/all] Error 2
+make: *** [all] Error 2
