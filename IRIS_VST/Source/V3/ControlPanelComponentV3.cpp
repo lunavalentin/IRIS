@@ -1,0 +1,238 @@
+#include "ControlPanelComponentV3.h"
+
+ControlPanelComponentV3::ControlPanelComponentV3(IrisVSTV3AudioProcessor& p)
+    : audioProcessor(p)
+{
+    // --- Row 1: + IR, Mix, Load Layout ---
+    addAndMakeVisible(addIRButton);
+    addIRButton.addListener(this);
+    
+    addAndMakeVisible(mixLabel);
+    mixLabel.setText("Mix", juce::dontSendNotification);
+    mixLabel.setJustificationType(juce::Justification::centred);
+    
+    addAndMakeVisible(mixSlider);
+    mixSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    mixSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    mixAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "mix", mixSlider);
+        
+    addAndMakeVisible(loadLayoutButton);
+    loadLayoutButton.addListener(this);
+    
+    // --- Row 2: + Wall, Wall Opacity, Save Layout ---
+    addAndMakeVisible(addWallButton);
+    addWallButton.addListener(this);
+    
+    addAndMakeVisible(wallOpacityLabel);
+    wallOpacityLabel.setText("Wall Opacity", juce::dontSendNotification);
+    wallOpacityLabel.setJustificationType(juce::Justification::centred);
+    
+    addAndMakeVisible(wallOpacitySlider);
+    wallOpacitySlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    wallOpacitySlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    wallOpacityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "wallOpacity", wallOpacitySlider);
+        
+    addAndMakeVisible(saveLayoutButton);
+    saveLayoutButton.addListener(this);
+    
+    // --- Row 3: Freeze, Inertia, Spread ---
+    addAndMakeVisible(freezeButton);
+    freezeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.parameters, "freeze", freezeButton);
+        
+    addAndMakeVisible(inertiaLabel);
+    inertiaLabel.setText("Inertia", juce::dontSendNotification);
+    inertiaLabel.setJustificationType(juce::Justification::centred);
+    
+    addAndMakeVisible(inertiaSlider);
+    inertiaSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    inertiaSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    inertiaAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "inertia", inertiaSlider);
+        
+    addAndMakeVisible(spreadLabel);
+    spreadLabel.setText("Spread", juce::dontSendNotification);
+    spreadLabel.setJustificationType(juce::Justification::centred);
+    
+    addAndMakeVisible(spreadSlider);
+    spreadSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    spreadSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    spreadAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "spread", spreadSlider);
+}
+
+ControlPanelComponentV3::~ControlPanelComponentV3()
+{
+}
+
+void ControlPanelComponentV3::paint(juce::Graphics& g)
+{
+    g.fillAll(juce::Colours::black); // Background
+    
+    // Header Style
+    g.setColour(juce::Colours::white.withAlpha(0.6f));
+    g.setFont(juce::Font("Inter", 12.0f, juce::Font::bold));
+    
+    // Group 1: Global
+    g.drawText("GLOBAL", 10, 5, 200, 15, juce::Justification::left);
+    
+    // Divider
+    // g.setColour(juce::Colours::white.withAlpha(0.1f));
+    // g.fillRect(10, 25, getWidth()-20, 1);
+    
+    // Group 2: Interaction
+    // We can find the Y position based on resized logic or hard math
+    // Layout: Header(20) + Row1(30) + Gap(10) + Row2(30) + Gap(20) + Header(20) + Row3(30)
+    // Interaction Header Y approx: 5 + 20 + 30 + 10 + 30 + 10 = 105?
+    
+    // Better: Helper variable or strict layout.
+    // Let's use the bounds from resized if possible, or simple fixed layout.
+    // Since resize is dynamic height, we'll calc relative.
+    
+    int rowH = (getHeight() - 50) / 3; // rough approx
+    int yBS = 20; // top spacer
+    int yInt = yBS + rowH + 10 + rowH + 10;
+    
+    // Let's just hardcode the logic to match resized()
+    // Row1Y = 25
+    // Row2Y = 25 + 30 + 10 = 65
+    // Interaction Header = 65 + 30 + 10 = 105
+    // Row3Y = 125
+    
+    // Actually, let's just draw it where we put the gap in resized? 
+    // We can't share state easily. Let's calculate based on height.
+    // Normalized layout:
+    // Top 2/3 is Global. Bottom 1/3 is Interaction.
+    
+    int interactionHeaderY = (getHeight() * 0.66f) - 10;
+    
+    g.setColour(juce::Colours::white.withAlpha(0.2f));
+    g.fillRect(10, interactionHeaderY, getWidth()-20, 1);
+    
+    g.setColour(juce::Colours::white.withAlpha(0.6f));
+    g.drawText("INTERACTION", 10, interactionHeaderY + 2, 200, 15, juce::Justification::left);
+}
+
+void ControlPanelComponentV3::resized()
+{
+    auto area = getLocalBounds().reduced(5);
+    
+    // Fixed height layout is safer for alignment
+    int btnH = 28;
+    int gap = 8;
+    
+    // --- GLOBAL ---
+    area.removeFromTop(18); // Header space
+    
+    // Row 1
+    auto row1 = area.removeFromTop(btnH);
+    addIRButton.setBounds(row1.removeFromLeft(70));
+    loadLayoutButton.setBounds(row1.removeFromRight(70));
+    
+    auto mixArea = row1.reduced(10, 0);
+    mixLabel.setBounds(mixArea.removeFromLeft(30));
+    mixSlider.setBounds(mixArea);
+    
+    area.removeFromTop(gap);
+    
+    // Row 2
+    auto row2 = area.removeFromTop(btnH);
+    addWallButton.setBounds(row2.removeFromLeft(70)); 
+    saveLayoutButton.setBounds(row2.removeFromRight(70));
+    
+    auto opArea = row2.reduced(10, 0);
+    wallOpacityLabel.setBounds(opArea.removeFromLeft(70));
+    wallOpacitySlider.setBounds(opArea);
+    
+    // --- INTERACTION ---
+    // Push down to bottom 1/3 approx
+    // Or just spacer
+    // area.removeFromTop(30); 
+    
+    // Calculate exact Y for Interaction to match paint
+    int interactionY = (getHeight() * 0.66f) + 10;
+    
+    // Reset area to that Y
+    auto row3 = getLocalBounds().reduced(5);
+    row3.setTop(interactionY);
+    row3.setHeight(btnH);
+    
+    // Row 3: Freeze | Inertia | Spread
+    int w = row3.getWidth() / 3;
+    
+    // Checkbox needs room for text "Freeze"
+    auto r1 = row3.removeFromLeft(w);
+    freezeButton.setBounds(r1.reduced(5, 0)); 
+    // Ensure button has text
+    // If it's a ToggleButton, text is right of box.
+    
+    auto r2 = row3.removeFromLeft(w);
+    inertiaLabel.setBounds(r2.removeFromLeft(45));
+    inertiaSlider.setBounds(r2);
+    
+    auto r3 = row3;
+    spreadLabel.setBounds(r3.removeFromLeft(45));
+    spreadSlider.setBounds(r3);
+}
+
+void ControlPanelComponentV3::buttonClicked(juce::Button* b)
+{
+    if (b == &addIRButton)
+    {
+        fileChooser = std::make_unique<juce::FileChooser>("Select IR File",
+                                                          juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                                                          "*.wav;*.aiff;*.mp3");
+                                                          
+        auto folderChooserFlags = juce::FileBrowserComponent::openMode | 
+                                  juce::FileBrowserComponent::canSelectFiles |
+                                  juce::FileBrowserComponent::canSelectMultipleItems;
+
+        fileChooser->launchAsync(folderChooserFlags, [this](const juce::FileChooser& fc)
+        {
+            auto files = fc.getResults();
+            for (auto& file : files)
+            {
+                if (file.existsAsFile())
+                    audioProcessor.addIRFromFile(file);
+            }
+        });
+    }
+    else if (b == &addWallButton)
+    {
+        // Add random wall in center
+        audioProcessor.addWall(0.4f, 0.4f, 0.6f, 0.6f);
+    }
+    else if (b == &loadLayoutButton)
+    {
+        fileChooser = std::make_unique<juce::FileChooser>("Load Layout",
+                                                          juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                                                          "*.json");
+        auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+        fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc){
+            auto f = fc.getResult();
+            if (f.existsAsFile()) audioProcessor.loadLayoutFromJSON(f);
+        });
+    }
+    else if (b == &saveLayoutButton)
+    {
+        fileChooser = std::make_unique<juce::FileChooser>("Save Layout",
+                                                          juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                                                          "*.json");
+        auto flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting;
+        fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc){
+            auto f = fc.getResult();
+            // Ensure extension
+            if (!f.hasFileExtension("json")) f = f.withFileExtension("json");
+            
+            audioProcessor.saveLayoutToJSON(f);
+        });
+    }
+}
+
+void ControlPanelComponentV3::update()
+{
+    // Attachments handle mostly everything. 
+    // If we had manual updates, here they go.
+}

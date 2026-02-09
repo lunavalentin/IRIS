@@ -31,42 +31,59 @@ void IrisVSTV3AudioProcessorEditor::paint (juce::Graphics& g)
 
 void IrisVSTV3AudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 {
-    // Draw Debug Overlay
+    // Draw Active IR Overlay (Top Left)
     g.setFont(12.0f);
-    g.setColour(juce::Colours::white);
     
     auto& neighbors = audioProcessor.currentNearestNeighbors;
     int y = 20;
     int x = 20;
-    
-    g.drawText("Active IRs:", x, y, 200, 20, juce::Justification::left); y += 20;
+
+    g.setColour(juce::Colours::white);
+    g.drawText("Active IRs (Gain Factor):", x, y, 200, 20, juce::Justification::left); y += 20;
     
     float sumW = 0.0f;
     for (auto& p : neighbors) sumW += audioProcessor.smoothedWeights[p.id];
-    if (sumW < 0.001f) sumW = 1.0f; // Avoid div/0
+    
+    // Dynamic Mix Factor
+    float mix = audioProcessor.mixParam->load();
+    float totalW = sumW; 
+    float dynamicFade = juce::jlimit(0.0f, 1.0f, totalW);
+    
+    if (sumW < 0.001f) sumW = 1.0f; // Avoid div/0 for normalization
     
     for (auto& p : neighbors)
     {
         float w = audioProcessor.smoothedWeights[p.id];
-        float normW = w / sumW;
-        g.drawText(p.name + ": " + juce::String(normW, 2), x, y, 200, 20, juce::Justification::left);
+        float normW = w / sumW; // Normalized contribution (0..1)
         
-        // Bar
-        g.setColour(p.color);
-        g.fillRect((float)x + 150, (float)y + 4, normW * 50.0f, 12.0f);
-        g.setColour(juce::Colours::white);
+        // Layout: Stacked v3.1.1
+        // Line 1: Name
+        // Line 2: Value | Bar
         
-        y += 20;
+        // Actual Multiplying Factor = NormW * Mix * DynamicFade
+        float actualFactor = normW * mix * dynamicFade;
+        
+        // Color code based on IR color
+        g.setColour(p.color); 
+        
+        // Line 1: Name
+        g.drawText(p.name, x, y, 200, 15, juce::Justification::left);
+        
+        // Line 2: Value + Bar
+        // Value width ~ 40px
+        g.drawText(juce::String(actualFactor, 3), x, y + 16, 40, 10, juce::Justification::left);
+        
+        // Bar starts after value (x + 45)
+        float barMaxLen = 100.0f;
+        g.fillRect((float)x + 45, (float)y + 18, actualFactor * barMaxLen, 6.0f);
+        
+        y += 30; // Spacing
         if (y > 300) break;
     }
     
-    y += 10;
-    bool freeze = audioProcessor.freezeParam->load();
-    g.drawText("Freeze: " + juce::String(freeze ? "ON" : "OFF"), x, y, 200, 20, juce::Justification::left); y += 20;
-    
-    float spread = audioProcessor.spreadParam->load();
-    float sigma = 0.05f + 1.5f * spread * spread;
-    g.drawText("Spread(Sigma): " + juce::String(sigma, 3), x, y, 200, 20, juce::Justification::left); y += 20;
+    // Version Check
+    g.setColour(juce::Colours::white.withAlpha(0.5f));
+    g.drawText("v3.1.1", x, y, 50, 10, juce::Justification::left);
 }
 
 void IrisVSTV3AudioProcessorEditor::resized()
@@ -77,12 +94,20 @@ void IrisVSTV3AudioProcessorEditor::resized()
     roomMap.setBounds(area.removeFromLeft(area.getWidth() * 0.6));
     
     // Side Panel: 
-    // Top: Control Panel (150px)
-    // Remaining split 50/50 IR List / Wall List
+    // Top: Control Panel (3 Rows -> ~150px)
     controlPanel.setBounds(area.removeFromTop(150));
     
+    // List Area
     auto listArea = area;
-    irList.setBounds(listArea.removeFromTop(listArea.getHeight() * 0.6)); // Give IRs slightly more space
+    
+    // Top part: IR List (Listener + List)
+    // Bottom part: Wall List (Header + List)
+    // User asked "Walls... At 2/3".
+    // 2/3 down the list area? Or IRs take 2/3?
+    // "List 2 Walls... At 2/3" implies IRs take first 2/3.
+    
+    irList.setBounds(listArea.removeFromTop(listArea.getHeight() * 0.66f)); 
+    listArea.removeFromTop(5);
     wallList.setBounds(listArea);
 }
 

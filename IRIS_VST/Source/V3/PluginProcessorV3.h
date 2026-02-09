@@ -12,6 +12,7 @@ struct ActiveIR {
 // Render State: A snapshot of what to process on the audio thread
 struct RenderState {
     std::vector<ActiveIR> activeIRs;
+    float totalWeight = 0.0f;
 };
 
 struct IRPoint {
@@ -40,6 +41,12 @@ struct IRPoint {
     // V2 Data
     float normGain = 1.0f;
     int onsetOffset = 0;
+    
+    // Debug Data (for UI)
+    float debug_rawWeight = 0.0f;
+    float debug_occlusionFactor = 1.0f;
+    float debug_finalWeight = 0.0f;
+    int debug_intersectionCount = 0;
 };
 
 struct OcclusionWall
@@ -114,6 +121,8 @@ public:
     std::vector<IRPoint> points;
     std::vector<OcclusionWall> walls;
     juce::Uuid selectedWallId; // Selection state
+    juce::Uuid selectedIRId;   // Selection state for IRs
+    juce::CriticalSection stateLock; // Protects points, walls, and other UI-modifiable state
     
     void addIRPoint(const juce::String& name);
     void removePoint(juce::Uuid id);
@@ -134,6 +143,7 @@ public:
     void setPointLocked(juce::Uuid id, bool locked);
     void setPointName(juce::Uuid id, const juce::String& name);
     void loadLayoutFromJSON(const juce::File& file);
+    void saveLayoutToJSON(const juce::File& file);
 
     // NN Logic
     void updateWeightsGaussian();
@@ -187,7 +197,7 @@ public:
 
 private:
     // Thread Safety
-    juce::CriticalSection stateLock; // Protects points, walls, and other UI-modifiable state
+    // stateLock moved to public
 
     // Helper to get a stable snapshot for the UI if needed, or just lock
     // For now, UI components should lock `stateLock` when iterating points/walls, 

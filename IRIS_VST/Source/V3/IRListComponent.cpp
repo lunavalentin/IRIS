@@ -71,9 +71,19 @@ void IRListItemV3::resized()
 
 void IRListItemV3::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colours::darkgrey.withAlpha(0.2f));
-    g.setColour(juce::Colours::black.withAlpha(0.5f));
-    g.drawRect(getLocalBounds());
+    // Flat background
+    g.fillAll(juce::Colours::black); 
+    
+    // Selection Border
+    if (processor.selectedIRId == pointId)
+    {
+        g.setColour(juce::Colours::cyan.withAlpha(0.6f));
+        g.drawRect(getLocalBounds(), 1.0f);
+    }
+    
+    // Separator line
+    g.setColour(juce::Colours::white.withAlpha(0.1f));
+    g.fillRect(0, getHeight()-1, getWidth(), 1);
 }
 
 void IRListItemV3::updateFromModel()
@@ -85,7 +95,10 @@ void IRListItemV3::updateFromModel()
         if (p.id == pointId)
         {
             found = true;
+            // Name: Emphasize
             nameLabel.setText(p.name, juce::dontSendNotification);
+            nameLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.9f));
+            nameLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
             
             // Only update text if not editing to avoid fighting user
             if (!xEditor.hasKeyboardFocus(true))
@@ -192,9 +205,30 @@ IRListComponentV3::IRListComponentV3(IrisVSTV3AudioProcessor& p)
     addAndMakeVisible(viewport);
     viewport.setViewedComponent(&contentContainer, false);
     
-    // addAndMakeVisible(addIRButton);
-    // addIRButton.onClick = [this] { addIRClicked(); };
+    addAndMakeVisible(titleLabel);
+    titleLabel.setText("IRs", juce::dontSendNotification);
+    titleLabel.setJustificationType(juce::Justification::centredLeft);
+    // Font set in paint or resized
     
+    // Listener Editors
+    addAndMakeVisible(listenerXEditor);
+    listenerXEditor.setJustification(juce::Justification::centred);
+    listenerXEditor.setText(juce::String(processor.currentListenerX, 2));
+    listenerXEditor.onReturnKey = [this] { 
+        processor.currentListenerX = listenerXEditor.getText().getFloatValue(); 
+        processor.updateWeightsGaussian();
+        if(processor.onStateChanged) processor.onStateChanged();
+    };
+    
+    addAndMakeVisible(listenerYEditor);
+    listenerYEditor.setJustification(juce::Justification::centred);
+    listenerYEditor.setText(juce::String(processor.currentListenerY, 2));
+    listenerYEditor.onReturnKey = [this] {
+        processor.currentListenerY = listenerYEditor.getText().getFloatValue();
+        processor.updateWeightsGaussian();
+        if(processor.onStateChanged) processor.onStateChanged();
+    };
+
     updateContent();
 }
 
@@ -204,28 +238,98 @@ IRListComponentV3::~IRListComponentV3()
 
 void IRListComponentV3::resized()
 {
-    auto area = getLocalBounds();
+    auto area = getLocalBounds().reduced(2);
+    
+    // Header (Title)
+    titleLabel.setBounds(area.removeFromTop(20));
+    
+    // Listener Section
+    auto listArea = area.removeFromTop(30);
+    
+    // Align Listener editors with the list columns
+    // List Item Layout: [Lock] [Del] [Name] [Y] [X]
+    // X is Rightmost(60), Y is Next(60).
+    
+    auto lRight = listArea.removeFromRight(60).reduced(2);
+    listenerXEditor.setBounds(lRight); // X is last
+    
+    auto lRight2 = listArea.removeFromRight(60).reduced(2);
+    listenerYEditor.setBounds(lRight2); // Y is before X
+    
+    // The "LISTENER" text is drawn in paint, or we can use a component?
+    // We are drawing it in paint.
+    
+    // Spacer
+    area.removeFromTop(5);
+    
+    // Viewport
     viewport.setBounds(area);
-    contentContainer.setBounds(area); // Initial size, will be adjusted in updateContent
+    int contentHeight = items.size() * 30; // 30px row
+    contentContainer.setBounds(0, 0, viewport.getMaximumVisibleWidth(), contentHeight);
+    
+    for (int i=0; i<items.size(); ++i)
+         items[i]->setBounds(0, i*30, contentContainer.getWidth(), 30);
 }
 
 void IRListComponentV3::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colours::black.withAlpha(0.3f));
+    g.fillAll(juce::Colours::black.brighter(0.05f)); 
+    
+    // Listener Background
+    g.setColour(juce::Colours::white.withAlpha(0.05f));
+    // Listener is at Y=22 roughly
+    g.fillRect(0, 22, getWidth(), 30);
+    
+    g.setColour(juce::Colours::white.withAlpha(0.9f));
+    g.setFont(juce::Font("Inter", 12.0f, juce::Font::bold));
+    
+    // "Listener" label - Align with Name column roughly
+    // Name starts after Lock(24)+Del(24) = 48
+    g.drawText("Listener", 55, 22, 100, 30, juce::Justification::left); 
+    
+    if (items.empty()) { /* ... */ }
 }
 
 void IRListComponentV3::updateContent()
 {
-    // Check if sync needed
+    // 1. Handle Listener
+    juce::Uuid listenerId = juce::Uuid::null();
+    for (auto& p : processor.points) {
+        if (p.isListener) {
+            listenerId = p.id;
+            break;
+        }
+    }
+    
+    if (listenerId != juce::Uuid::null())
+    {
+        if (!listenerItem || listenerItem->pointId != listenerId)
+        {
+            listenerItem = std::make_unique<IRListItemV3>(processor, listenerId);
+            addAndMakeVisible(listenerItem.get());
+            resized(); // Update layout to include listener
+        }
+        else
+        {
+            listenerItem->updateFromModel();
+        }
+    }
+    
+    // 2. Handle IRs (Non-Listener)
+    std::vector<juce::Uuid> currentIRIds;
+    for (auto& p : processor.points) {
+        if (!p.isListener) currentIRIds.push_back(p.id);
+    }
+    
     bool structureChanged = false;
-    if (items.size() != processor.points.size()) 
+    if (items.size() != currentIRIds.size()) 
     {
         structureChanged = true;
     }
     else
     {
         for (size_t i=0; i<items.size(); ++i) {
-            if (items[i]->pointId != processor.points[i].id) {
+            if (items[i]->pointId != currentIRIds[i]) {
                 structureChanged = true; break;
             }
         }
@@ -237,16 +341,18 @@ void IRListComponentV3::updateContent()
         contentContainer.removeAllChildren();
         
         int y = 0;
-        for (auto& p : processor.points)
+        int rowH = 30;
+        
+        for (auto id : currentIRIds)
         {
-            auto item = std::make_unique<IRListItemV3>(processor, p.id);
-            item->setBounds(0, y, getWidth(), 30); // Width will be fixed by resize logic if needed
+            auto item = std::make_unique<IRListItemV3>(processor, id);
+            item->setBounds(0, y, contentContainer.getWidth(), rowH);
             contentContainer.addAndMakeVisible(item.get());
             items.push_back(std::move(item));
-            y += 30;
+            y += rowH;
         }
         
-        contentContainer.setBounds(0, 0, getWidth(), std::max(getHeight(), y));
+        contentContainer.setBounds(0, 0, viewport.getMaximumVisibleWidth(), std::max(10, y));
     }
     else
     {
@@ -256,36 +362,18 @@ void IRListComponentV3::updateContent()
         }
     }
     
-    // Ensure container width matches viewport logic
-    if (contentContainer.getWidth() != viewport.getWidth())
+    // Ensure container width
+    if (contentContainer.getWidth() != viewport.getWidth()) { 
+        // Force width update
         contentContainer.setSize(viewport.getMaximumVisibleWidth(), contentContainer.getHeight());
-        
-    // Relayout items if container width changed
-     int y = 0;
-     for (auto& item : items) {
-         item->setBounds(0, y, contentContainer.getWidth(), 30);
-         y += 30;
-     }
+         int y = 0;
+         for (auto& item : items) {
+             item->setBounds(0, y, contentContainer.getWidth(), 30);
+             y += 30;
+         }
+    }
 }
 
-void IRListComponentV3::addIRClicked()
-{
-    fileChooser = std::make_unique<juce::FileChooser>("Select IR File",
-                                                      juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-                                                      "*.wav;*.aiff");
-                                                      
-    auto folderChooserFlags = juce::FileBrowserComponent::openMode | 
-                              juce::FileBrowserComponent::canSelectFiles;
-
-    fileChooser->launchAsync(folderChooserFlags, [this](const juce::FileChooser& fc)
-    {
-        auto file = fc.getResult();
-        if (file.existsAsFile())
-        {
-            processor.addIRFromFile(file);
-        }
-    });
-}
 
 //==============================================================================
 bool IRListComponentV3::isInterestedInFileDrag (const juce::StringArray& files)

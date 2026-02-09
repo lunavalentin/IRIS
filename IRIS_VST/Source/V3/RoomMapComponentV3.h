@@ -35,6 +35,7 @@ private:
     float dragStartObjY = 0.0f;
     // For Walls (x1,y1, x2,y2)
     float dragStartWall[4];
+    int dragHandle = 0; // 0=Center(Move), 1=Left(Size/P1), 2=Right(Rotate/P2)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RoomMapComponentV3)
 };

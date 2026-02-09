@@ -1,7 +1,7 @@
 #include "PluginProcessorV3.h"
 #include "PluginEditorV3.h"
 
-juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout IrisVSTV3AudioProcessor::createParameterLayout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
     
@@ -184,64 +184,60 @@ void IrisVSTV3AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     // Check if we have active IRs
     std::shared_ptr<RenderState> state = std::atomic_load(&renderState);
     
-    // PASSTHROUGH LOGIC
-    // If no active IRs, we do NOTHING to the buffer.
-    // Audio behaves as if plugin is bypassed or wire.
-    if (!state || state->activeIRs.empty()) 
-    {
-        // NO-OP. Buffer passes through untouched.
-        return; 
-    }
-    
-    // Mono Processing
-    // Buffer is Mono.
+    // PASSTHROUGH LOGIC CHANGED for Dynamic Mix
+    // Even if activeIRs is empty, we might need to fade to dry if we were previously wet.
+    // However, the renderState is swapped atomically.
     
     // Copy Input
     juce::AudioBuffer<float> inputBuffer;
     inputBuffer.makeCopyOf(buffer, true); 
     
-    // Clear Output for accumulation
+    // Clear Output for accumulation of WET signal
     buffer.clear(); 
     
     // Ensure mix buffer
     if (mixBuffer.getNumSamples() != buffer.getNumSamples())
         mixBuffer.setSize(1, buffer.getNumSamples());
     
-    for (auto& ir : state->activeIRs)
+    if (state && !state->activeIRs.empty()) 
     {
-        if (ir.convolver && ir.weight > 0.0001f)
+        for (auto& ir : state->activeIRs)
         {
-            mixBuffer.clear();
-            
-            // Convolve Mono Input -> Mono MixBuffer
-            juce::dsp::AudioBlock<float> inputBlock(inputBuffer);
-            juce::dsp::AudioBlock<float> outputBlock(mixBuffer);
-            
-            // Create Context
-            juce::dsp::ProcessContextNonReplacing<float> context(inputBlock, outputBlock);
-            ir.convolver->process(context);
-            
-            // Accumulate MixBuffer * Weight -> Main Buffer
-            // Mono: ch 0 to ch 0
-            // We accumulate to mixBuffer first effectively (well, here strictly accumulating to OUTPUT 'buffer'
-            // BUT, wait. 'buffer' was cleared at line 179.
-            // So 'buffer' IS the wet signal accumulator.
-            buffer.addFrom(0, 0, mixBuffer, 0, 0, mixBuffer.getNumSamples(), ir.weight);
+            if (ir.convolver && ir.weight > 0.0001f)
+            {
+                mixBuffer.clear();
+                
+                // Convolve Mono Input -> Mono MixBuffer
+                juce::dsp::AudioBlock<float> inputBlock(inputBuffer);
+                juce::dsp::AudioBlock<float> outputBlock(mixBuffer);
+                
+                // Create Context
+                juce::dsp::ProcessContextNonReplacing<float> context(inputBlock, outputBlock);
+                ir.convolver->process(context);
+                
+                // Accumulate MixBuffer * Weight -> Main Buffer (Wet Accumulator)
+                buffer.addFrom(0, 0, mixBuffer, 0, 0, mixBuffer.getNumSamples(), ir.weight);
+            }
         }
     }
     
-    // DRY / WET MIX
-    float mix = mixParam->load();
+    // DRY / WET MIX with DYNAMIC FADE
+    // Effective Wet Amount = UserMix * min(1.0, TotalWeight)
+    // If TotalWeight is 0 (far away), Effective Wet is 0 -> Pure Dry.
+    // If TotalWeight is > 1 (immersed), Effective Wet is UserMix.
     
-    // buffer now contains Pure Wet.
-    // inputBuffer contains Dry.
+    float userMix = mixParam->load();
+    float totalW = state ? state->totalWeight : 0.0f;
     
-    // y = (1-mix)*x + mix*wet
-    // We can do this in place on 'buffer' (which is wet).
-    // buffer = buffer * mix + inputBuffer * (1-mix)
+    // Smooth transition logic is handled by 'smoothedWeights' which drives 'totalWeight'.
+    float effectiveWet = userMix * juce::jlimit(0.0f, 1.0f, totalW);
     
-    buffer.applyGain(mix);
-    buffer.addFrom(0, 0, inputBuffer, 0, 0, buffer.getNumSamples(), 1.0f - mix);
+    // Apply Wet Gain to the accumulated wet signal in 'buffer'
+    buffer.applyGain(effectiveWet);
+    
+    // Add Dry Signal
+    // Dry Gain = 1.0 - effectiveWet (Equal Power? or Linear? Linear for crossfade prevents dip usually if correlated, but here uncorrelated mostly. Linear is safer for "dry only" guarantee)
+    buffer.addFrom(0, 0, inputBuffer, 0, 0, buffer.getNumSamples(), 1.0f - effectiveWet);
 }
 
 bool IrisVSTV3AudioProcessor::hasEditor() const
@@ -728,7 +724,7 @@ void IrisVSTV3AudioProcessor::updateWall(juce::Uuid id, float x1, float y1, floa
 // Returns true if intersection found, outputting point to (ix, iy)
 static bool getIntersectionPoint(float ax, float ay, float bx, float by, 
                                  float cx, float cy, float dx, float dy,
-                                 float& ix, float& iy)
+                                 float& ix, float& iy, float& t_wall)
 {
     float d = (dy - cy) * (bx - ax) - (dx - cx) * (by - ay);
     if (d == 0) return false; // Parallel
@@ -736,9 +732,11 @@ static bool getIntersectionPoint(float ax, float ay, float bx, float by,
     float ua = ((dx - cx) * (ay - cy) - (dy - cy) * (ax - cx)) / d;
     float ub = ((bx - ax) * (ay - cy) - (by - ay) * (ax - cx)) / d;
 
+    // ua is parameter on Ray (0..1), ub is parameter on Wall (0..1)
     if (ua >= 0.0f && ua <= 1.0f && ub >= 0.0f && ub <= 1.0f) {
         ix = ax + ua * (bx - ax);
         iy = ay + ua * (by - ay);
+        t_wall = ub;
         return true;
     }
     return false;
@@ -838,42 +836,60 @@ void IrisVSTV3AudioProcessor::updateWeightsGaussian()
         float w = std::exp(-d2 / (2.0f * sigmaVal * sigmaVal));
         
         // --- OCCLUSION CHECK ---
-        // Soft Occlusion: Center-weighted
         float occlusionFactor = 1.0f;
+        int intersectionCount = 0;
+        
+        // Retrieve Wall Opacity from parameter
+        float oneMinusOpacity = 1.0f; 
+        if (wallOpacityParam) oneMinusOpacity = 1.0f - wallOpacityParam->load();
+        
+        // If Opacity is 1.0 (fully opaque), oneMinusOpacity is 0.0.
+        // If Opacity is 0.0 (transparent), oneMinusOpacity is 1.0.
+        // We want to MULTIPLY weight by this factor for each wall.
+        // But let's set a minimum attenuation to ensure walls DO something even if opacity is low in UI?
+        float baseOpacity = wallOpacityParam->load(); 
         
         for (const auto& wStruct : walls)
         {
-             float ix, iy;
-             if (getIntersectionPoint(currentListenerX, currentListenerY, p.x, p.y, 
-                                      wStruct.x1, wStruct.y1, wStruct.x2, wStruct.y2, ix, iy))
-             {
-                 // Calculate Wall Center and Length
-                 float cx = (wStruct.x1 + wStruct.x2) * 0.5f;
-                 float cy = (wStruct.y1 + wStruct.y2) * 0.5f;
-                 float wallLen = std::sqrt(distSq(wStruct.x1, wStruct.y1, wStruct.x2, wStruct.y2));
-                 
-                 // Distance from Intersection to Center
-                 float distToCenter = std::sqrt(distSq(ix, iy, cx, cy));
-                 
-                 // Normalized distance t (0 at center, 1 at endpoints)
-                 float t = 0.0f;
-                 if (wallLen > 0) t = distToCenter / (wallLen * 0.5f);
-                 t = juce::jlimit(0.0f, 1.0f, t);
-                 
-                 // Exponential Curve
-                 // o = pow(epsilon, pow(1.0 - t, gamma))
-                 // constants: epsilon=0.05, gamma=2.0
-                 float epsilon = 0.05f;
-                 float gamma = 4.0f;
-                 
-                 float o = std::pow(epsilon, std::pow(1.0f - t, gamma));
-                 
-                 occlusionFactor *= o;
-             }
+            float ix, iy, t_wall;
+            // Listener (currentListenerX,Y) to Point (p.x, p.y)
+            if (getIntersectionPoint(currentListenerX, currentListenerY, p.x, p.y, 
+                                     wStruct.x1, wStruct.y1, wStruct.x2, wStruct.y2, 
+                                     ix, iy, t_wall))
+            {
+                intersectionCount++;
+                
+                // Edge Fade Logic (Diffraction simulation)
+                // 0.0 at tips, 1.0 in center (20% ramp)
+                float edgeFade = 1.0f;
+                if (t_wall < 0.2f)
+                {
+                    edgeFade = t_wall / 0.2f;
+                }
+                else if (t_wall > 0.8f)
+                {
+                    edgeFade = (1.0f - t_wall) / 0.2f;
+                }
+                
+                // Variable Opacity
+                // If wallOpacity is 1.0, we block fully (except edges).
+                // If wallOpacity is 0.0, we don't block at all.
+                float effectiveOpacity = baseOpacity * edgeFade;
+                
+                // Occlusion Multiplier
+                // 1.0 - opacity
+                occlusionFactor *= (1.0f - effectiveOpacity);
+            }
         }
-        
+
         w *= occlusionFactor;
         // -----------------------
+        
+        // Store Debug Data
+        p.debug_rawWeight = std::exp(-d2 / (2.0f * sigmaVal * sigmaVal)); // Recalc raw or store pre-mult? This is fine.
+        p.debug_occlusionFactor = occlusionFactor;
+        p.debug_intersectionCount = intersectionCount;
+        p.debug_finalWeight = w;
         
         rawWeights.push_back({w, &p});
         if (w > maxWeight) maxWeight = w;
@@ -1008,6 +1024,9 @@ void IrisVSTV3AudioProcessor::timerCallback()
         if (current > 0.0f) sumForNorm += current;
     }
     
+    // Store Total Weight for Dynamic Mix
+    nextState->totalWeight = sumForNorm;
+    
     // 3. Build Safe Render List (Normalized)
     currentNearestNeighbors.clear();
     
@@ -1085,6 +1104,56 @@ void IrisVSTV3AudioProcessor::oscMessageReceived (const juce::OSCMessage& messag
         // Notify Editor? 
         if (onStateChanged) juce::MessageManager::callAsync([this]{ onStateChanged(); });
     }
+    else if (message.getAddressPattern() == "/listener/pos")
+    {
+        if (message.size() >= 2 && message[0].isFloat32() && message[1].isFloat32())
+        {
+            float x = message[0].getFloat32();
+            float y = message[1].getFloat32();
+            
+            // Find listener and update
+            // We use the mutex as usual
+            juce::ScopedLock sl(stateLock);
+            for (auto& p : points) {
+                if (p.isListener) {
+                    p.x = juce::jlimit(0.0f, 1.0f, x);
+                    p.y = juce::jlimit(0.0f, 1.0f, y);
+                    currentListenerX = p.x;
+                    currentListenerY = p.y;
+                    break;
+                }
+            }
+            // Trigger update
+            // We can call updateWeightsGaussian() here but timer will pick it up
+            // calling it ensures immediate feedback for weight calc if wanted, 
+            // but might be heavy for high rate OSC. Use atomic flag if necessary.
+            // But let's check: updateWeightsGaussian is fast enough usually.
+        }
+    }
+    else if (message.getAddressPattern() == "/ir/pos")
+    {
+        // /ir/pos index x y OR /ir/pos name x y?
+        // Let's support index first as it's easier to verify
+        if (message.size() >= 3 && message[0].isInt32() && message[1].isFloat32() && message[2].isFloat32())
+        {
+            int index = message[0].getInt32();
+            float x = message[1].getFloat32();
+            float y = message[2].getFloat32();
+            
+            juce::ScopedLock sl(stateLock);
+            int count = 0;
+            for (auto& p : points) {
+                if (!p.isListener) {
+                    if (count == index) {
+                         p.x = juce::jlimit(0.0f, 1.0f, x);
+                         p.y = juce::jlimit(0.0f, 1.0f, y);
+                         break;
+                    }
+                    count++;
+                }
+            }
+        }
+    }
 }
 
 void IrisVSTV3AudioProcessor::setPointName(juce::Uuid id, const juce::String& name)
@@ -1124,6 +1193,13 @@ void IrisVSTV3AudioProcessor::loadLayoutFromJSON(const juce::File& file)
         ymax = extent.getProperty("ymax", 100.0f);
     }
     
+    float rangeX = (xmax - xmin);
+    float rangeY = (ymax - ymin);
+    if (std::abs(rangeX) < 0.001f) rangeX = 1.0f;
+    if (std::abs(rangeY) < 0.001f) rangeY = 1.0f;
+    
+    juce::ScopedLock sl(stateLock);
+
     // IRs
     juce::var irs = json["irs"];
     if (irs.isArray())
@@ -1133,7 +1209,10 @@ void IrisVSTV3AudioProcessor::loadLayoutFromJSON(const juce::File& file)
         for (auto& p : points) {
             if (!p.isListener) toRemove.push_back(p.id);
         }
+        // Unlock temporarily to remove
+        stateLock.exit(); 
         for (auto id : toRemove) removePoint(id);
+        stateLock.enter();
         
         for (int i = 0; i < irs.size(); ++i)
         {
@@ -1153,29 +1232,134 @@ void IrisVSTV3AudioProcessor::loadLayoutFromJSON(const juce::File& file)
             
             if (irFile.existsAsFile())
             {
+                // Unload lock for file op (addIRFromFile takes lock internally? No, checks: addIRFromFile does NOT lock internally, it seems? 
+                // Wait, addIRFromFile calls points.push_back. Need to check if it locks.
+                // Re-checking code: addIRFromFile does NOT have ScopedLock. 
+                // But it calls updateWeightsGaussian which operates on state.
+                // Ideally addIRFromFile should be safe.
+                // Let's assume we can call it. But if we are holding lock, it modifies points. 
+                
+                stateLock.exit();
                 juce::Uuid id = addIRFromFile(irFile);
+                stateLock.enter();
+                
                 if (id != juce::Uuid::null())
                 {
                     // Map Coords
-                    float rangeX = (xmax - xmin);
-                    float rangeY = (ymax - ymin);
-                    
-                    float xn = 0.5f;
-                    float yn = 0.5f;
-                    
-                    if (std::abs(rangeX) > 0.001f) xn = (wx - xmin) / rangeX;
-                    if (std::abs(rangeY) > 0.001f) yn = (wy - ymin) / rangeY;
+                    float xn = (wx - xmin) / rangeX;
+                    float yn = (wy - ymin) / rangeY;
                     
                     xn = juce::jlimit(0.0f, 1.0f, xn);
                     yn = juce::jlimit(0.0f, 1.0f, yn);
                     
-                    updatePointPosition(id, xn, yn);
-                    if (name.isNotEmpty()) setPointName(id, name);
+                    // Direct update to avoid lock recursion or issues
+                    for(auto& p : points) {
+                        if (p.id == id) {
+                            p.x = xn; p.y = yn; 
+                            if(name.isNotEmpty()) p.name = name;
+                            break;
+                        }
+                    }
                 }
             }
         }
     }
     
-    // Notify
+    // WALLS
+    juce::var wallsVar = json["walls"];
+    if (wallsVar.isArray())
+    {
+        walls.clear();
+        for (int i = 0; i < wallsVar.size(); ++i)
+        {
+             juce::var wObj = wallsVar[i];
+             float x1 = wObj.getProperty("x1", 0.0f);
+             float y1 = wObj.getProperty("y1", 0.0f);
+             float x2 = wObj.getProperty("x2", 0.0f);
+             float y2 = wObj.getProperty("y2", 0.0f);
+             
+             // Map
+             float nx1 = (x1 - xmin) / rangeX;
+             float ny1 = (y1 - ymin) / rangeY;
+             float nx2 = (x2 - xmin) / rangeX;
+             float ny2 = (y2 - ymin) / rangeY;
+             
+             OcclusionWall w;
+             w.id = juce::Uuid();
+             w.name = wObj.getProperty("name", "Wall");
+             w.x1 = juce::jlimit(0.0f, 1.0f, nx1);
+             w.y1 = juce::jlimit(0.0f, 1.0f, ny1);
+             w.x2 = juce::jlimit(0.0f, 1.0f, nx2);
+             w.y2 = juce::jlimit(0.0f, 1.0f, ny2);
+             w.locked = wObj.getProperty("locked", false);
+             w.attenuation = wObj.getProperty("attenuation", 0.05f);
+             w.color = juce::Colours::cyan;
+             
+             walls.push_back(w);
+        }
+    }
+    
+    stateLock.exit(); // Release before notify?
+    updateWeightsGaussian();
     if (onStateChanged) onStateChanged();
+}
+
+void IrisVSTV3AudioProcessor::saveLayoutToJSON(const juce::File& file)
+{
+    juce::ScopedLock sl(stateLock);
+    
+    juce::var json;
+    juce::DynamicObject* root = new juce::DynamicObject();
+    json = juce::var(root);
+    
+    // Extent (Normalized)
+    juce::DynamicObject* extent = new juce::DynamicObject();
+    extent->setProperty("xmin", 0.0);
+    extent->setProperty("xmax", 1.0);
+    extent->setProperty("ymin", 0.0);
+    extent->setProperty("ymax", 1.0);
+    root->setProperty("extent", extent);
+    
+    // IRs
+    juce::Array<juce::var> irArray;
+    for (const auto& p : points)
+    {
+        if (p.isListener) continue;
+        
+        juce::DynamicObject* irObj = new juce::DynamicObject();
+        irObj->setProperty("name", p.name);
+        irObj->setProperty("x", p.x);
+        irObj->setProperty("y", p.y);
+        
+        // Path (Relative)
+        juce::String path = p.sourceFile.getFullPathName();
+        juce::String parentDir = file.getParentDirectory().getFullPathName();
+        if (path.startsWith(parentDir)) {
+            path = p.sourceFile.getRelativePathFrom(file.getParentDirectory());
+        }
+        irObj->setProperty("path", path);
+        
+        irArray.add(irObj);
+    }
+    root->setProperty("irs", irArray);
+    
+    // Walls
+    juce::Array<juce::var> wallArray;
+    for (const auto& w : walls)
+    {
+        juce::DynamicObject* wObj = new juce::DynamicObject();
+        wObj->setProperty("name", w.name);
+        wObj->setProperty("x1", w.x1);
+        wObj->setProperty("y1", w.y1);
+        wObj->setProperty("x2", w.x2);
+        wObj->setProperty("y2", w.y2);
+        wObj->setProperty("locked", w.locked);
+        wObj->setProperty("attenuation", w.attenuation);
+        
+        wallArray.add(wObj);
+    }
+    root->setProperty("walls", wallArray);
+    
+    // Write
+    file.replaceWithText(juce::JSON::toString(json));
 }

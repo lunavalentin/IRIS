@@ -60,7 +60,7 @@ juce_add_plugin(IRIS3
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-    COPY_PLUGIN_AFTER_BUILD TRUE
+    COPY_PLUGIN_AFTER_BUILD FALSE
     PLUGIN_MANUFACTURER_CODE IRIS
     PLUGIN_CODE Irs3
     FORMATS VST3
@@ -77,7 +77,7 @@ target_sources(IRIS3
         Source/V3/PluginEditorV3.h
         Source/V3/RoomMapComponent.cpp
         Source/V3/RoomMapComponentV3.h
-        Source/V3/ControlPanelComponent.cpp
+        Source/V3/ControlPanelComponentV3.cpp
         Source/V3/ControlPanelComponentV3.h
         Source/V3/IRListComponent.cpp
         Source/V3/IRListComponentV3.h

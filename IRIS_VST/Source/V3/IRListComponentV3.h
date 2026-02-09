@@ -60,12 +60,15 @@ private:
     juce::Viewport viewport;
     juce::Component contentContainer;
     
+    std::unique_ptr<IRListItemV3> listenerItem; // (Maybe unused if listener is manual)
     std::vector<std::unique_ptr<IRListItemV3>> items;
     
-    juce::TextButton addIRButton { "+ IR" };
+    // Header Components
+    juce::Label titleLabel; 
+    juce::TextEditor listenerXEditor;
+    juce::TextEditor listenerYEditor;
+    
     std::unique_ptr<juce::FileChooser> fileChooser;
-
-    void addIRClicked();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(IRListComponentV3)
 };

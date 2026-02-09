@@ -16,53 +16,46 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     
-    void buttonClicked (juce::Button* button) override; // Added override
+    void buttonClicked (juce::Button* button) override;
     
-    void update();
+    void update(); // Manual update for non-parameter things if needed
     
 
 private:
     IrisVSTV3AudioProcessor& audioProcessor;
+    
+    // --- Row 1 ---
     juce::TextButton addIRButton { "+ IR" };
-    juce::TextButton addWallButton { "+ Wall" };
-    std::unique_ptr<juce::FileChooser> fileChooser;
-    
-    juce::Label inertiaLabel;
-    juce::Slider inertiaSlider;
-    juce::ToggleButton freezeButton;
-    
-    juce::TextButton loadLayoutButton { "Load Layout" };
-    
-    juce::Label spreadLabel;
-    juce::Slider spreadSlider;
     
     juce::Label mixLabel;
     juce::Slider mixSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment;
     
-    // We don't have APVTS so no smart attachments easily.
-    // Basic interaction via callbacks in constructor.
-
-    // Layout Labels
-    juce::Label dryLabel;
-    juce::Label wetLabel;
+    juce::TextButton loadLayoutButton { "Load Layout" };
     
-    juce::Label freezeLabel;
+    // --- Row 2 ---
+    juce::TextButton addWallButton { "+ Wall" };
     
-    // inertiaLabel exists above
-    juce::Label inertiaPlusLabel;
-    juce::Label inertiaMinusLabel;
-    
-    // spreadLabel exists above
-    juce::Label spreadPlusLabel;
-    juce::Label spreadMinusLabel;
-    
-    // Wall Opacity
     juce::Label wallOpacityLabel;
     juce::Slider wallOpacitySlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> wallOpacityAttachment;
     
-    // Wall Props - REMOVED (Moved to WallListComponent)
-    // juce::GroupComponent wallPropsGroup ...
+    juce::TextButton saveLayoutButton { "Save Layout" };
     
+    // --- Row 3 ---
+    juce::ToggleButton freezeButton { "Freeze" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> freezeAttachment;
+    
+    juce::Label inertiaLabel;
+    juce::Slider inertiaSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> inertiaAttachment;
+    
+    juce::Label spreadLabel;
+    juce::Slider spreadSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> spreadAttachment;
+    
+    // Helpers
+    std::unique_ptr<juce::FileChooser> fileChooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ControlPanelComponentV3)
 };

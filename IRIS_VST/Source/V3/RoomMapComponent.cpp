@@ -74,15 +74,20 @@ void RoomMapComponentV3::paint (juce::Graphics& g)
         g.setColour(w.color.withAlpha(wallOpacity));
         g.drawLine(x1, y1, x2, y2, 3.0f);
         
-        // Endpoints
-        g.fillEllipse(x1-3, y1-3, 6, 6);
-        g.fillEllipse(x2-3, y2-3, 6, 6);
-        
-        // Center Handle
+        // Center Handle (Move)
         float cx = (x1 + x2) * 0.5f;
         float cy = (y1 + y2) * 0.5f;
         g.setColour(w.color.brighter().withAlpha(wallOpacity));
         g.fillEllipse(cx-4, cy-4, 8, 8);
+        
+        // Endpoints
+        // Left (Size) - Greenish
+        g.setColour(juce::Colours::limegreen.withAlpha(wallOpacity));
+        g.fillEllipse(x1-4, y1-4, 8, 8);
+        
+        // Right (Rotate) - Reddish
+        g.setColour(juce::Colours::tomato.withAlpha(wallOpacity));
+        g.fillEllipse(x2-4, y2-4, 8, 8);
         
         if (w.locked)
         {
@@ -90,7 +95,6 @@ void RoomMapComponentV3::paint (juce::Graphics& g)
             g.drawRect(cx-5.0f, cy-5.0f, 10.0f, 10.0f, 1.0f);
         }
     }
-
     // 3. Points
     for (const auto& point : audioProcessor.points)
     {
@@ -179,7 +183,6 @@ void RoomMapComponentV3::mouseDown(const juce::MouseEvent& e)
 {
     draggingId = juce::Uuid::null(); // Reset
     
-// ...
     // Find clicked point - iterate backwards to catch top items first
     for (auto it = audioProcessor.points.rbegin(); it != audioProcessor.points.rend(); ++it)
     {
@@ -214,12 +217,17 @@ void RoomMapComponentV3::mouseDown(const juce::MouseEvent& e)
         float y1 = w.y1 * getHeight();
         float x2 = w.x2 * getWidth();
         float y2 = w.y2 * getHeight();
-        
-        // Check distance to center primarily for "dragging"
         float cx = (x1 + x2) * 0.5f;
         float cy = (y1 + y2) * 0.5f;
         
-        if (e.getPosition().getDistanceFrom(juce::Point<int>((int)cx, (int)cy)) < 10.0f)
+        int hitHandle = -1;
+        juce::Point<int> mousePos = e.getPosition();
+        
+        if (mousePos.getDistanceFrom(juce::Point<int>((int)x1, (int)y1)) < 12.0f) hitHandle = 1; // Left/Size
+        else if (mousePos.getDistanceFrom(juce::Point<int>((int)x2, (int)y2)) < 12.0f) hitHandle = 2; // Right/Rotate
+        else if (mousePos.getDistanceFrom(juce::Point<int>((int)cx, (int)cy)) < 12.0f) hitHandle = 0; // Center/Move
+
+        if (hitHandle != -1)
         {
             // Select Wall
             audioProcessor.selectedWallId = w.id;
@@ -228,6 +236,7 @@ void RoomMapComponentV3::mouseDown(const juce::MouseEvent& e)
             {
                 draggingId = w.id;
                 isDraggingWall = true;
+                dragHandle = hitHandle;
                 
                 // Init Drag State
                 dragStartMouseX = (float)e.x / getWidth();
@@ -267,11 +276,55 @@ void RoomMapComponentV3::mouseDrag(const juce::MouseEvent& e)
         
         if (isDraggingWall)
         {
-            // Update Wall Relative to Start
-            float w_x1 = juce::jlimit(0.0f, 1.0f, dragStartWall[0] + dx);
-            float w_y1 = juce::jlimit(0.0f, 1.0f, dragStartWall[1] + dy);
-            float w_x2 = juce::jlimit(0.0f, 1.0f, dragStartWall[2] + dx);
-            float w_y2 = juce::jlimit(0.0f, 1.0f, dragStartWall[3] + dy);
+            float w_x1, w_y1, w_x2, w_y2;
+            
+            if (dragHandle == 0) // Move
+            {
+                w_x1 = juce::jlimit(0.0f, 1.0f, dragStartWall[0] + dx);
+                w_y1 = juce::jlimit(0.0f, 1.0f, dragStartWall[1] + dy);
+                w_x2 = juce::jlimit(0.0f, 1.0f, dragStartWall[2] + dx);
+                w_y2 = juce::jlimit(0.0f, 1.0f, dragStartWall[3] + dy);
+            }
+            else if (dragHandle == 1) // Size (Left) - Keep Center Fixed
+            {
+                float cx = (dragStartWall[0] + dragStartWall[2]) * 0.5f;
+                float cy = (dragStartWall[1] + dragStartWall[3]) * 0.5f;
+                
+                // Dist from mouse to center
+                float distSq = (nx - cx)*(nx - cx) + (ny - cy)*(ny - cy);
+                float halfLen = std::sqrt(distSq);
+                
+                // Current Angle
+                float wallDx = dragStartWall[2] - dragStartWall[0];
+                float wallDy = dragStartWall[3] - dragStartWall[1];
+                float angle = std::atan2(wallDy, wallDx);
+                
+                float hx = halfLen * std::cos(angle);
+                float hy = halfLen * std::sin(angle);
+                
+                w_x1 = cx - hx; w_x2 = cx + hx;
+                w_y1 = cy - hy; w_y2 = cy + hy;
+            }
+            else // Handle 2: Rotate (Right) - Keep Center Fixed, Length Fixed?
+            {
+                // User said "Right dot controls angle".
+                float cx = (dragStartWall[0] + dragStartWall[2]) * 0.5f;
+                float cy = (dragStartWall[1] + dragStartWall[3]) * 0.5f;
+                
+                // New Angle from Center to Mouse
+                float angle = std::atan2(ny - cy, nx - cx);
+                
+                // Original Length
+                float wallDx = dragStartWall[2] - dragStartWall[0];
+                float wallDy = dragStartWall[3] - dragStartWall[1];
+                float halfLen = std::sqrt(wallDx*wallDx + wallDy*wallDy) * 0.5f;
+                
+                float hx = halfLen * std::cos(angle);
+                float hy = halfLen * std::sin(angle);
+                
+                w_x1 = cx - hx; w_x2 = cx + hx;
+                w_y1 = cy - hy; w_y2 = cy + hy;
+            }
             
             audioProcessor.updateWall(draggingId, w_x1, w_y1, w_x2, w_y2);
         }

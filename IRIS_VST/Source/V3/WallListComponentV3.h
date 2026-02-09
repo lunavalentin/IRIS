@@ -26,7 +26,13 @@ private:
     
     juce::TextEditor nameEditor;
     IconButtonV3 lockButton { "Lock", IconButtonV3::Lock };
-    IconButtonV3 deleteButton { "Delete", IconButtonV3::Delete };
+    IconButtonV3 deleteButton { "Remove", IconButtonV3::Delete }; // "Remove" icon per user request (was Delete) or just tooltip? User said "remove icon". Kept class generic.
+    
+    // Boxes for Size/Rotation
+    juce::TextEditor lengthEditor;
+    juce::TextEditor angleEditor;
+    
+    // Labels just for context? Or tooltips.
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WallListItemV3)
 };
@@ -51,6 +57,6 @@ private:
     std::vector<std::unique_ptr<WallListItemV3>> items;
     
     juce::Label titleLabel;
-
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WallListComponentV3)
 };

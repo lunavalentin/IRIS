@@ -1,0 +1,200 @@
+-- Configuring juceaide
+-- Building juceaide
+-- Exporting juceaide
+-- Testing juceaide
+-- Finished setting up juceaide
+-- Configuring done (0.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/build
+[  2%] Building CXX object CMakeFiles/IRIS3_vst3_helper.dir/JUCE/modules/juce_audio_plugin_client/VST3/juce_VST3ManifestHelper.mm.o
+[  4%] Linking CXX executable IRIS3_vst3_helper
+[  4%] Built target IRIS3_vst3_helper
+[  7%] Generating IRIS3_artefacts/JuceLibraryCode/JuceHeader.h
+[  9%] Building CXX object CMakeFiles/IRIS3.dir/Source/V3/PluginProcessor.cpp.o
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:1:
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessorV3.h:62:16: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   62 |         if (l2 == 0) return std::sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
+      |             ~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:4:53: warning: no previous prototype for function 'createParameterLayout' [-Wmissing-prototypes]
+    4 | juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
+      |                                                     ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:4:1: note: declare 'static' if the function is not intended to be used outside of this translation unit
+    4 | juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
+      | ^
+      | static 
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:122:54: warning: unused parameter 'index' [-Wunused-parameter]
+  122 | void IrisVSTV3AudioProcessor::setCurrentProgram (int index)
+      |                                                      ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:126:65: warning: unused parameter 'index' [-Wunused-parameter]
+  126 | const juce::String IrisVSTV3AudioProcessor::getProgramName (int index)
+      |                                                                 ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:131:54: warning: unused parameter 'index' [-Wunused-parameter]
+  131 | void IrisVSTV3AudioProcessor::changeProgramName (int index, const juce::String& newName)
+      |                                                      ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:131:81: warning: unused parameter 'newName' [-Wunused-parameter]
+  131 | void IrisVSTV3AudioProcessor::changeProgramName (int index, const juce::String& newName)
+      |                                                                                 ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:180:97: warning: unused parameter 'midiMessages' [-Wunused-parameter]
+  180 | void IrisVSTV3AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+      |                                                                                                 ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:734:11: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+  734 |     if (d == 0) return false; // Parallel
+      |         ~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:756:12: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+  756 |     if (l2 == 0) { outX = x1; outY = y1; return; }
+      |         ~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:785:21: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+  785 |             if (len == 0) {
+      |                 ~~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:946:26: warning: implicit conversion turns floating-point number into integer: 'float' to 'bool' [-Wfloat-conversion]
+  946 |         if (freezeParam->load()) 
+      |         ~~  ~~~~~~~~~~~~~^~~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessor.cpp:1045:33: warning: implicit conversion turns floating-point number into integer: 'float' to 'bool' [-Wfloat-conversion]
+ 1045 |     if (changed || freezeParam->load()) { // if frozen we might want to update osc just in case? Or no.
+      |                 ~~ ~~~~~~~~~~~~~^~~~~~
+12 warnings generated.
+[ 11%] Building CXX object CMakeFiles/IRIS3.dir/Source/V3/PluginEditor.cpp.o
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginEditor.cpp:1:
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessorV3.h:62:16: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   62 |         if (l2 == 0) return std::sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
+      |             ~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginEditor.cpp:64:47: warning: implicit conversion turns floating-point number into integer: 'float' to 'bool' [-Wfloat-conversion]
+   64 |     bool freeze = audioProcessor.freezeParam->load();
+      |          ~~~~~~   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginEditor.cpp:77:59: warning: implicit conversion turns floating-point number into integer: 'double' to 'int' [-Wfloat-conversion]
+   77 |     roomMap.setBounds(area.removeFromLeft(area.getWidth() * 0.6));
+      |                            ~~~~~~~~~~~~~~ ~~~~~~~~~~~~~~~~^~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginEditor.cpp:85:66: warning: implicit conversion turns floating-point number into integer: 'double' to 'int' [-Wfloat-conversion]
+   85 |     irList.setBounds(listArea.removeFromTop(listArea.getHeight() * 0.6)); // Give IRs slightly more space
+      |                               ~~~~~~~~~~~~~ ~~~~~~~~~~~~~~~~~~~~~^~~~~
+4 warnings generated.
+[ 14%] Building CXX object CMakeFiles/IRIS3.dir/Source/V3/RoomMapComponent.cpp.o
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/RoomMapComponent.cpp:1:
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/RoomMapComponentV3.h:4:
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessorV3.h:62:16: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   62 |         if (l2 == 0) return std::sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
+      |             ~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/RoomMapComponent.cpp:169:48: warning: implicit conversion turns floating-point number into integer: 'float' to 'int' [-Wfloat-conversion]
+  169 |             g.drawText(point.name, px + 15, py - 10, 100, 20, juce::Justification::left);
+      |               ~~~~~~~~                      ~~~^~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/RoomMapComponent.cpp:169:39: warning: implicit conversion turns floating-point number into integer: 'float' to 'int' [-Wfloat-conversion]
+  169 |             g.drawText(point.name, px + 15, py - 10, 100, 20, juce::Justification::left);
+      |               ~~~~~~~~             ~~~^~~~
+3 warnings generated.
+[ 16%] Building CXX object CMakeFiles/IRIS3.dir/Source/V3/ControlPanelComponent.cpp.o
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/ControlPanelComponent.cpp:1:
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/ControlPanelComponentV3.h:4:
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessorV3.h:62:16: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   62 |         if (l2 == 0) return std::sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
+      |             ~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/ControlPanelComponent.cpp:40:33: warning: implicit conversion turns floating-point number into integer: 'float' to 'bool' [-Wfloat-conversion]
+   40 |     freezeButton.setToggleState(*audioProcessor.freezeParam, juce::dontSendNotification);
+      |                  ~~~~~~~~~~~~~~ ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/ControlPanelComponent.cpp:177:9: warning: unused variable 'sectionW' [-Wunused-variable]
+  177 |     int sectionW = w / 3;
+      |         ^~~~~~~~
+3 warnings generated.
+[ 19%] Building CXX object CMakeFiles/IRIS3.dir/Source/V3/IRListComponent.cpp.o
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/IRListComponent.cpp:1:
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/IRListComponentV3.h:4:
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessorV3.h:62:16: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   62 |         if (l2 == 0) return std::sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
+      |             ~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/IRListComponent.cpp:5:7: warning: field 'processor' will be initialized after field 'pointId' [-Wreorder-ctor]
+    5 |     : processor(p), pointId(id)
+      |       ^~~~~~~~~~~~  ~~~~~~~~~~~
+      |       pointId(id)   processor(p)
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/IRListComponent.cpp:82:10: warning: variable 'found' set but not used [-Wunused-but-set-variable]
+   82 |     bool found = false;
+      |          ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/IRListComponent.cpp:301:75: warning: unused parameter 'x' [-Wunused-parameter]
+  301 | void IRListComponentV3::filesDropped (const juce::StringArray& files, int x, int y)
+      |                                                                           ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/IRListComponent.cpp:301:82: warning: unused parameter 'y' [-Wunused-parameter]
+  301 | void IRListComponentV3::filesDropped (const juce::StringArray& files, int x, int y)
+      |                                                                                  ^
+5 warnings generated.
+[ 21%] Building CXX object CMakeFiles/IRIS3.dir/Source/V3/WallListComponent.cpp.o
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:1:
+In file included from /Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponentV3.h:4:
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/PluginProcessorV3.h:62:16: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   62 |         if (l2 == 0) return std::sqrt((px-x1)*(px-x1) + (py-y1)*(py-y1));
+      |             ~~ ^  ~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:8:7: warning: field 'processor' will be initialized after field 'wallId' [-Wreorder-ctor]
+    8 |     : processor(p), wallId(id)
+      |       ^~~~~~~~~~~~  ~~~~~~~~~~
+      |       wallId(id)    processor(p)
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:114:24: warning: 'Font' is deprecated: Use the constructor that takes a FontOptions argument [-Wdeprecated-declarations]
+  114 |     titleLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+      |                        ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/JUCE/modules/juce_graphics/fonts/juce_Font.h:76:7: note: 'Font' has been explicitly marked deprecated here
+   76 |     [[deprecated ("Use the constructor that takes a FontOptions argument")]]
+      |       ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:114:24: warning: 'Font' is deprecated: Use the constructor that takes a FontOptions argument [-Wdeprecated-declarations]
+  114 |     titleLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+      |                        ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/JUCE/modules/juce_graphics/fonts/juce_Font.h:76:7: note: 'Font' has been explicitly marked deprecated here
+   76 |     [[deprecated ("Use the constructor that takes a FontOptions argument")]]
+      |       ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:136:16: warning: implicit conversion changes signedness: 'int' to 'size_type' (aka 'unsigned long') [-Wsign-conversion]
+  136 |          items[i]->setBounds(0, i*35, contentContainer.getWidth(), 30);
+      |          ~~~~~ ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:132:77: warning: implicit conversion loses integer precision: 'size_type' (aka 'unsigned long') to 'int' [-Wshorten-64-to-32]
+  132 |     contentContainer.setBounds(0, 0, viewport.getWidth() - 15, items.size() * 35);
+      |                      ~~~~~~~~~                                 ~~~~~~~~~~~~~^~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:134:20: warning: comparison of integers of different signs: 'int' and 'size_type' (aka 'unsigned long') [-Wsign-compare]
+  134 |     for (int i=0; i<items.size(); ++i)
+      |                   ~^~~~~~~~~~~~~
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:153:54: warning: implicit conversion changes signedness: 'int' to 'size_type' (aka 'unsigned long') [-Wsign-conversion]
+  153 |              if (items[i]->wallId != processor.walls[i].id) {
+      |                                      ~~~~~~~~~       ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:153:24: warning: implicit conversion changes signedness: 'int' to 'size_type' (aka 'unsigned long') [-Wsign-conversion]
+  153 |              if (items[i]->wallId != processor.walls[i].id) {
+      |                  ~~~~~ ^
+/Users/luna/Documents/Research/Codes/IRIS/IRIS_VST/Source/V3/WallListComponent.cpp:152:24: warning: comparison of integers of different signs: 'int' and 'size_type' (aka 'unsigned long') [-Wsign-compare]
+  152 |         for (int i=0; i<items.size(); ++i) {
+      |                       ~^~~~~~~~~~~~~
+10 warnings generated.
+[ 23%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o
+[ 26%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o
+[ 28%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o
+[ 30%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[ 33%] Building C object CMakeFiles/IRIS3.dir/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[ 35%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_graphics/juce_graphics.mm.o
+[ 38%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_events/juce_events.mm.o
+[ 40%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[ 42%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_core/juce_core.mm.o
+[ 45%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_data_structures/juce_data_structures.mm.o
+[ 47%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_ara.cpp.o
+[ 50%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_lv2_libs.cpp.o
+[ 52%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless.mm.o
+[ 54%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o
+[ 57%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o
+[ 59%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o
+[ 61%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o
+[ 64%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_osc/juce_osc.cpp.o
+[ 66%] Building CXX object CMakeFiles/IRIS3.dir/JUCE/modules/juce_dsp/juce_dsp.mm.o
+[ 69%] Linking CXX static library IRIS3_artefacts/Release/libIRIS3_SharedCode.a
+[ 69%] Built target IRIS3
+[ 71%] Generating IRIS3_artefacts/JuceLibraryCode/IRIS3_VST3/PkgInfo
+[ 73%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX_utils.cpp.o
+[ 76%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_ARA.cpp.o
+[ 78%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_Standalone.cpp.o
+[ 80%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_Unity.cpp.o
+[ 83%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.mm.o
+[ 85%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm.o
+[ 88%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_2.mm.o
+[ 90%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AUv3.mm.o
+[ 92%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_LV2.mm.o
+[ 95%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST2.mm.o
+[ 97%] Building CXX object CMakeFiles/IRIS3_VST3.dir/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.mm.o
+[100%] Linking CXX CFBundle shared module IRIS3_artefacts/Release/VST3/IRIS3.vst3/Contents/MacOS/IRIS3
+Undefined symbols for architecture arm64:
+  "IrisVSTV3AudioProcessor::createParameterLayout()", referenced from:
+      IrisVSTV3AudioProcessor::IrisVSTV3AudioProcessor() in lto.o
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [IRIS3_artefacts/Release/VST3/IRIS3.vst3/Contents/MacOS/IRIS3] Error 1
+make[2]: *** [CMakeFiles/IRIS3_VST3.dir/all] Error 2
+make[1]: *** [CMakeFiles/IRIS3_VST3.dir/rule] Error 2
+make: *** [IRIS3_VST3] Error 2
