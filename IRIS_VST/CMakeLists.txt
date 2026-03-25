@@ -142,6 +142,11 @@ target_sources(IRIS4
         Source/V4/WallListComponentV4.h
         Source/V4/IrisOSCManager.cpp
         Source/V4/IrisOSCManager.h
+        Source/V4/Theme.cpp
+        Source/V4/Theme.h
+        Source/V4/IrisLookAndFeel.cpp
+        Source/V4/IrisLookAndFeel.h
+        Source/V4/IconButtonV4.h
 )
 
 target_compile_definitions(IRIS4
