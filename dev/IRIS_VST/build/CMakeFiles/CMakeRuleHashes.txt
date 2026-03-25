@@ -1,7 +1,0 @@
-# Hashes of file build rules.
-c649a421a11ead2775d3bc9fdde6fa09 IRIS3_artefacts/JuceLibraryCode/IRIS3_VST3/PkgInfo
-2a85c045ef1d8d610362b906e7b094ea IRIS3_artefacts/JuceLibraryCode/JuceHeader.h
-7581251ce04e702af92e372be39135c7 IRIS4_artefacts/JuceLibraryCode/IRIS4_VST3/PkgInfo
-ba88e80f65583869150dad92f4fc9e6e IRIS4_artefacts/JuceLibraryCode/JuceHeader.h
-507866bb03e395dc66851b4c158e1d06 IRIS_V2_artefacts/JuceLibraryCode/IRIS_V2_VST3/PkgInfo
-826f67876fb9dcb1c22202139cd6b824 IRIS_V2_artefacts/JuceLibraryCode/JuceHeader.h
