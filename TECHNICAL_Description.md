@@ -59,5 +59,4 @@ When any $L_k$ coordinate undergoes a displacement operation locally:
 ### 5.2 Global Parameter Mirroring
 Every global engine feature sets flags via the `AudioProcessorValueTreeState::Listener` class. Upon mutation, global values (like Mix, Spread, Freeze, and Inertia) construct local OSC signatures and replicate perfectly.
 
-## 6. Conclusion
-IRIS V4 represents an extensive step in architectural robustness and feature execution, decoupling direct positional rendering into a mathematical crossfading layer governed by graph algorithms and spatial physics.
+
