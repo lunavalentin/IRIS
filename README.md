@@ -11,7 +11,7 @@ In V4, IRIS has been overhauled with a modern "Flat Utility" aesthetic, symmetri
 
 ## UI Regions & Screenshots
 
-`![Plugin](docs/screenshots/main.png)` 
+![Plugin](docs/screenshots/main.png)
 
 - **Main Interface (Room Map)**: ![Room Map](docs/screenshots/roommap.png)
 - **Control Panel**: ![Control Panel](docs/screenshots/controlpan.png)
