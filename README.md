@@ -28,10 +28,10 @@ In V4, IRIS has been overhauled with a modern "Flat Utility" aesthetic, symmetri
 - **Full OSC Synchronization**: Listeners, IR points, Walls, and global parameters (Spread, Mix, Inertia, Freeze) are seamlessly broadcast and mirrored across all instantiated instances.
 - **Modern UI Redesign**: A flat, minimalist, dark-themed utility aesthetic.
 
-## Build Requirements (macOS)
+## Build Requirements
 - CMake >= 3.15
-- A C++17 capable compiler (Apple Clang)
-- The JUCE framework is bundled in the `JUCE/` directory.
+- A C++17 capable compiler (Apple Clang, GCC, MSVC)
+- The JUCE framework will be automatically fetched by CMake during the initial configuration, so no manual installation is required.
 
 ### Quick Build
 ```bash
