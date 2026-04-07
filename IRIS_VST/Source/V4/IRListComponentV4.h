@@ -6,7 +6,7 @@
 #include "IconButtonV4.h"
 
 // A single row in the list
-class IRListItemV4 : public juce::Component, public juce::Button::Listener, public juce::TextEditor::Listener, public juce::ComboBox::Listener
+class IRListItemV4 : public juce::Component, public juce::Button::Listener, public juce::TextEditor::Listener, public juce::ComboBox::Listener, public juce::Label::Listener
 {
 public:
     IRListItemV4(IrisVSTV4AudioProcessor& p, juce::Uuid id);
@@ -19,6 +19,7 @@ public:
     void buttonClicked(juce::Button* b) override;
     void textEditorReturnKeyPressed(juce::TextEditor& ed) override;
     void textEditorFocusLost(juce::TextEditor& ed) override;
+    void labelTextChanged(juce::Label* labelThatHasChanged) override;
 
     void updateFromModel(); // Pulls data from processor
 

@@ -7,6 +7,8 @@ IRListItemV4::IRListItemV4(IrisVSTV4AudioProcessor& p, juce::Uuid id)
 {
     addAndMakeVisible(nameLabel);
     nameLabel.setJustificationType(juce::Justification::centredLeft);
+    nameLabel.setEditable(false, true, false);
+    nameLabel.addListener(this);
     
     addAndMakeVisible(xEditor);
     xEditor.setJustification(juce::Justification::centred);
@@ -97,7 +99,8 @@ void IRListItemV4::updateFromModel()
         {
             found = true;
             // Name: Emphasize
-            nameLabel.setText(p.name, juce::dontSendNotification);
+            if (!nameLabel.isBeingEdited())
+                nameLabel.setText(p.name, juce::dontSendNotification);
             nameLabel.setColour(juce::Label::textColourId, Theme::textPrimary);
             nameLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
             
@@ -187,6 +190,14 @@ void IRListItemV4::textEditorFocusLost(juce::TextEditor& ed)
         if (&ed == &xEditor) cx = val;
         if (&ed == &yEditor) cy = val;
         processor.updatePointPosition(pointId, cx, cy);
+    }
+}
+
+void IRListItemV4::labelTextChanged(juce::Label* labelThatHasChanged)
+{
+    if (labelThatHasChanged == &nameLabel)
+    {
+        processor.setPointName(pointId, nameLabel.getText(), true);
     }
 }
 

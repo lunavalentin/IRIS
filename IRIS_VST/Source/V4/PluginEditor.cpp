@@ -87,7 +87,7 @@ void IrisVSTV4AudioProcessorEditor::paintOverChildren (juce::Graphics& g)
     
     // Version Check
     g.setColour(juce::Colours::white.withAlpha(0.5f));
-    g.drawText("v4.1.1", x, y, 50, 10, juce::Justification::left);
+    g.drawText("v4.2.0", x, y, 50, 10, juce::Justification::left);
 }
 
 void IrisVSTV4AudioProcessorEditor::resized()

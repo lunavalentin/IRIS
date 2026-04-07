@@ -981,8 +981,8 @@ void IrisVSTV4AudioProcessor::requestFullOSCSync()
 void IrisVSTV4AudioProcessor::reloadIRChannel(juce::Uuid id, int channel, bool broadcast)
 {
     // SYNC
-    if (broadcast && broadcastIRs)
-        oscManager.syncIRChannel(id, channel, this);
+    // if (broadcast && broadcastIRs)
+    //     oscManager.syncIRChannel(id, channel, this);
     
     for (auto& p : points)
     {

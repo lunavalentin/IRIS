@@ -1,5 +1,7 @@
 #include "ListenerListComponentV4.h"
 #include "Theme.h"
+#include "PluginProcessorV4.h"
+#include "IrisOSCManager.h"
 
 //==============================================================================
 ListenerListItemV4::ListenerListItemV4(IrisVSTV4AudioProcessor& p, juce::Uuid id, bool local)
@@ -7,6 +9,8 @@ ListenerListItemV4::ListenerListItemV4(IrisVSTV4AudioProcessor& p, juce::Uuid id
 {
     addAndMakeVisible(nameLabel);
     nameLabel.setJustificationType(juce::Justification::centredLeft);
+    nameLabel.setEditable(false, true, false);
+    nameLabel.addListener(this);
     
     addAndMakeVisible(xEditor);
     xEditor.setJustification(juce::Justification::centred);
@@ -113,7 +117,8 @@ void ListenerListItemV4::updateFromModel()
         return;
     }
     
-    nameLabel.setText(name + (isLocalList ? " (Local)" : ""), juce::dontSendNotification);
+    if (!nameLabel.isBeingEdited())
+        nameLabel.setText(name + (isLocalList ? " (Local)" : ""), juce::dontSendNotification);
     
     if (!xEditor.hasKeyboardFocus(true))
         xEditor.setText(juce::String(x, 2), juce::dontSendNotification);
@@ -161,6 +166,33 @@ void ListenerListItemV4::textEditorFocusLost(juce::TextEditor& ed)
     if (&ed == &yEditor) cy = val;
     
     processor.updateListenerPosition(listenerId, cx, cy, true);
+}
+
+void ListenerListItemV4::labelTextChanged(juce::Label* labelThatHasChanged)
+{
+    if (labelThatHasChanged == &nameLabel)
+    {
+        juce::String newName = nameLabel.getText().replace(" (Local)", "");
+        if (isLocalList) {
+            processor.localAudioListener.name = newName;
+            processor.oscManager.setListenerState(processor.localAudioListener.id, 
+                                                  newName, 
+                                                  processor.localAudioListener.x, 
+                                                  processor.localAudioListener.y, 
+                                                  false, 
+                                                  processor.localAudioListener.locked, 
+                                                  &processor);
+        } else {
+            processor.oscManager.setListenerState(listenerId, 
+                                                  newName, 
+                                                  processor.remoteListeners[listenerId].x, 
+                                                  processor.remoteListeners[listenerId].y, 
+                                                  false, 
+                                                  processor.remoteListeners[listenerId].locked, 
+                                                  &processor);
+        }
+        if (processor.onStateChanged) processor.onStateChanged();
+    }
 }
 
 

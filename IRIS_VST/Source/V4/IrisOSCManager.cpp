@@ -259,6 +259,15 @@ void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
         float val = message[0].getFloat32();
         notifyProcessors([val](IrisVSTV4AudioProcessor* p) { if(auto* par = p->wallOpacityParam) par->store(val); p->updateParameterNotifiers("wallOpacity", val); });
     }
+    else if (message.getAddressPattern() == "/iris/ir/name" && message.size() == 2)
+    {
+        if (message[0].isString() && message[1].isString())
+        {
+            juce::Uuid id(message[0].getString());
+            juce::String name = message[1].getString();
+            notifyProcessors([id, name](IrisVSTV4AudioProcessor* p) { p->setPointName(id, name, false); });
+        }
+    }
 }
 
 
@@ -377,12 +386,16 @@ void IrisOSCManager::syncIRPosition(const juce::Uuid& id, float x, float y, Iris
 void IrisOSCManager::syncIRName(const juce::Uuid& id, const juce::String& name, IrisVSTV4AudioProcessor* source)
 {
     notifyProcessors([id, name](IrisVSTV4AudioProcessor* p) { p->setPointName(id, name, false); }, source);
-     // OSC?
+    
+    juce::OSCMessage m("/iris/ir/name");
+    m.addString(id.toString());
+    m.addString(name);
+    sendOSC(m);
 }
 
 void IrisOSCManager::syncIRChannel(const juce::Uuid& id, int channel, IrisVSTV4AudioProcessor* source)
 {
-    notifyProcessors([id, channel](IrisVSTV4AudioProcessor* p) { p->reloadIRChannel(id, channel, false); }, source);
+    // notifyProcessors([id, channel](IrisVSTV4AudioProcessor* p) { p->reloadIRChannel(id, channel, false); }, source);
 }
 
 void IrisOSCManager::syncLocked(const juce::Uuid& id, bool locked, IrisVSTV4AudioProcessor* source)
@@ -458,7 +471,7 @@ void IrisOSCManager::requestFullSync(IrisVSTV4AudioProcessor* requester)
             // Props
             syncLocked(p.id, p.locked, requester);
             syncIRName(p.id, p.name, requester);
-            syncIRChannel(p.id, p.selectedChannel, requester);
+            // syncIRChannel(p.id, p.selectedChannel, requester);
         }
     }
 }

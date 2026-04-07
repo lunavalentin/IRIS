@@ -119,6 +119,9 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     juce::AudioProcessorValueTreeState parameters;
 
+    // OSC Manager Reference
+    IrisOSCManager& oscManager;
+
     // Custom Data
     std::vector<IRPoint> points;
     std::vector<OcclusionWall> walls;
@@ -254,9 +257,6 @@ private:
 private:
     // Render State (Thread safe)
     std::shared_ptr<RenderState> renderState; // Accessed by Audio Thread
-    
-    // OSC Manager Reference
-    IrisOSCManager& oscManager;
     
     // Mixing Buffer
     juce::AudioBuffer<float> mixBuffer;

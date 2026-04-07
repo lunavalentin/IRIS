@@ -20,9 +20,9 @@ juce_add_plugin(IRIS4
     COPY_PLUGIN_AFTER_BUILD FALSE
     PLUGIN_MANUFACTURER_CODE IRIS
     PLUGIN_CODE Iris4
-    FORMATS VST3
+    FORMATS VST3 AU
     PRODUCT_NAME "IRIS4"
-    VERSION "4.0.0"
+    VERSION "4.2.0"
 )
 
 juce_generate_juce_header(IRIS4)

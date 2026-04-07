@@ -166,7 +166,7 @@ void ControlPanelComponentV4::buttonClicked(juce::Button* b)
     {
         fileChooser = std::make_unique<juce::FileChooser>("Select IR File",
                                                           juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-                                                          "*.wav;*.aiff;*.mp3");
+                                                          "*.wav;*.WAV;*.aiff;*.mp3");
                                                           
         auto folderChooserFlags = juce::FileBrowserComponent::openMode | 
                                   juce::FileBrowserComponent::canSelectFiles |

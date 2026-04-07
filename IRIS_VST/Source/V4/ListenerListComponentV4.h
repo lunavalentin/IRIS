@@ -6,7 +6,8 @@
 // Individual list item for a listener
 class ListenerListItemV4 : public juce::Component,
                            public juce::Button::Listener,
-                           public juce::TextEditor::Listener
+                           public juce::TextEditor::Listener,
+                           public juce::Label::Listener
 {
 public:
     ListenerListItemV4(IrisVSTV4AudioProcessor& p, juce::Uuid id, bool local);
@@ -20,6 +21,7 @@ public:
     void buttonClicked(juce::Button* b) override;
     void textEditorReturnKeyPressed(juce::TextEditor& ed) override;
     void textEditorFocusLost(juce::TextEditor& ed) override;
+    void labelTextChanged(juce::Label* labelThatHasChanged) override;
 
     juce::Uuid listenerId;
     bool isLocalList;

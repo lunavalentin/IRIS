@@ -28,19 +28,32 @@ In V4, IRIS has been overhauled with a modern "Flat Utility" aesthetic, symmetri
 - **Full OSC Synchronization**: Listeners, IR points, Walls, and global parameters (Spread, Mix, Inertia, Freeze) are seamlessly broadcast and mirrored across all instantiated instances.
 - **Modern UI Redesign**: A flat, minimalist, dark-themed utility aesthetic.
 
+## Demo Layout
+
+To quickly test the plugin's spatialization and multi-node functionality, a pre-configured JSON layout and a set of sample impulse responses are included in the `demo/` folder of this repository.
+
+**How to load the demo:**
+1. Open the **IRIS4** plugin in your DAW or plugin host.
+2. Click the **"Import JSON"** (📁) button in the upper menu bar (next to the global parameters).
+3. Navigate to the `IRIS/demo/` folder and select the `demo_layout.json` file.
+4. The plugin will automatically populate the Room Map symmetrically with the 4 sample IRs. Their properties securely bind relative to the demo folder.
+
 ## Build Requirements
 - CMake >= 3.15
 - A C++17 capable compiler (Apple Clang, GCC, MSVC)
 - The JUCE framework will be automatically fetched by CMake during the initial configuration, so no manual installation is required.
 
-### Quick Build
+### Build Instructions
+
+For the cleanest build experience, it is highly recommended to build the plugin residing within your local JUCE framework directory:
+
 ```bash
-cd IRIS_VST
-mkdir -p build && cd build
-cmake ..
+cd /path/to/your/JUCE    # Navigate to your installed JUCE folder
+mkdir -p IRIS_Build && cd IRIS_Build
+cmake /path/to/IRIS/IRIS_VST  # Point CMake to the IRIS_VST source folder
 cmake --build . --target IRIS4_VST3 -j 8
 ```
-The compiled VST3 bundle will be available at `build/IRIS4_artefacts/Release/VST3/IRIS4.vst3`. Copy it to `~/Library/Audio/Plug-Ins/VST3/`.
+The compiled VST3 bundle will be available at `IRIS4_artefacts/Release/VST3/IRIS4.vst3`. Copy it to `~/Library/Audio/Plug-Ins/VST3/`.
 
 ## OSC Integration Specs
 IRIS4 uses a decentralized OSC architecture (defaults to sending/receiving on ports 9001/9002).
