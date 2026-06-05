@@ -47,7 +47,7 @@ With the addition of a Global `Freeze` parameter, the user can instantly decoupl
 
 A crucial deployment requirement for large-scale sonic installations is the requirement to run autonomous, synchronized convolutions simultaneously across distinct DAWs over a shared IP network.
 
-### 5.1 Symmetric Network Propagtion
+### 5.1 Symmetric Network Propagation
 Instead of typical master/slave routing logic, IRIS implements symmetric listener links. When $L_A$ is declared linked to $L_B$, a bidirectional graph edge $(L_A, L_B)$ is inserted to the global network graph, and synchronized across every running VST via OSC over `127.0.0.1:9002`.
 
 When any $L_k$ coordinate undergoes a displacement operation locally:

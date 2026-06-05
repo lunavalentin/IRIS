@@ -1,214 +1,171 @@
-#include "IRListComponentV4.h"
+#include "IRListComponent.h"
 #include "Theme.h"
 
-//==============================================================================
-IRListItemV4::IRListItemV4(IrisVSTV4AudioProcessor& p, juce::Uuid id)
+// ---------------------------------------------------------------------------
+// IRListItem
+// ---------------------------------------------------------------------------
+
+IRListItem::IRListItem(IrisAudioProcessor& p, juce::Uuid id)
     : processor(p), pointId(id)
 {
     addAndMakeVisible(nameLabel);
     nameLabel.setJustificationType(juce::Justification::centredLeft);
     nameLabel.setEditable(false, true, false);
     nameLabel.addListener(this);
-    
+
     addAndMakeVisible(xEditor);
     xEditor.setJustification(juce::Justification::centred);
     xEditor.addListener(this);
-    
+
     addAndMakeVisible(yEditor);
     yEditor.setJustification(juce::Justification::centred);
     yEditor.addListener(this);
-    
+
     addAndMakeVisible(lockButton);
-    lockButton.setClickingTogglesState(true); // Lock toggles
+    lockButton.setClickingTogglesState(true);
     lockButton.setTooltip("Lock Position");
     lockButton.addListener(this);
-    
+
     addAndMakeVisible(deleteButton);
     deleteButton.setTooltip("Remove IR");
     deleteButton.addListener(this);
-    
-    addAndMakeVisible(channelSelector);
-    channelSelector.setJustificationType(juce::Justification::centred);
-    channelSelector.addListener(this);
-    channelSelector.setVisible(false);
-    
+
     updateFromModel();
 }
 
-IRListItemV4::~IRListItemV4()
-{
-}
+IRListItem::~IRListItem() {}
 
-void IRListItemV4::resized()
+void IRListItem::resized()
 {
-    auto area = getLocalBounds().reduced(2); // Global padding
-    
-    // Left: Icons
-    // Lock
+    auto area = getLocalBounds().reduced(2);
+
     lockButton.setBounds(area.removeFromLeft(24).reduced(2));
     area.removeFromLeft(4);
-    
-    // Delete
+
     deleteButton.setBounds(area.removeFromLeft(24).reduced(2));
     area.removeFromLeft(8);
-    
-    // Right: Controls
-    // X (Rightmost)
+
     xEditor.setBounds(area.removeFromRight(60).reduced(2));
     area.removeFromRight(4);
-    
-    // Y
+
     yEditor.setBounds(area.removeFromRight(60).reduced(2));
     area.removeFromRight(4);
-    
-    // Channel Selector (if visible)
-    if (channelSelector.isVisible())
-    {
-        channelSelector.setBounds(area.removeFromRight(60).reduced(2));
-        area.removeFromRight(4);
-    }
-    
-    // Remainder: Name
+
     nameLabel.setBounds(area);
 }
 
-void IRListItemV4::paint(juce::Graphics& g)
+void IRListItem::paint(juce::Graphics& g)
 {
-    // Flat background
-    g.fillAll(Theme::panelBackground); 
-    
-    // Selection Border
+    g.fillAll(Theme::panelBackground);
+
+    if (isIncompatible)
+    {
+        g.setColour(juce::Colours::orange.withAlpha(0.12f));
+        g.fillRect(getLocalBounds());
+        g.setColour(juce::Colours::orange.withAlpha(0.6f));
+        g.fillRect(0, 0, 3, getHeight());
+    }
+
     if (processor.selectedIRId == pointId)
     {
-        g.setColour(Theme::accentCyan.withAlpha(0.6f));
+        g.setColour(isIncompatible ? juce::Colours::orange.withAlpha(0.8f)
+                                   : Theme::accentCyan.withAlpha(0.6f));
         g.drawRect(getLocalBounds(), 1.0f);
     }
-    
-    // Separator line
+
     g.setColour(Theme::borderMinimal);
-    g.fillRect(0, getHeight()-1, getWidth(), 1);
+    g.fillRect(0, getHeight() - 1, getWidth(), 1);
 }
 
-void IRListItemV4::updateFromModel()
+void IRListItem::updateFromModel()
 {
-    // Find point
-    bool found = false;
     for (auto& p : processor.points)
     {
-        if (p.id == pointId)
+        if (p.id != pointId) continue;
+
+        int  numOut    = processor.getTotalNumOutputChannels();
+        bool newIncompat = (p.sourceChannels > 1 && p.sourceChannels != numOut);
+
+        // Only repaint the row if the visual state actually changed.
+        if (newIncompat != isIncompatible)
         {
-            found = true;
-            // Name: Emphasize
-            if (!nameLabel.isBeingEdited())
-                nameLabel.setText(p.name, juce::dontSendNotification);
-            nameLabel.setColour(juce::Label::textColourId, Theme::textPrimary);
-            nameLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-            
-            // Only update text if not editing to avoid fighting user
-            if (!xEditor.hasKeyboardFocus(true))
-                xEditor.setText(juce::String(p.x, 3), juce::dontSendNotification);
-                
-            if (!yEditor.hasKeyboardFocus(true))
-                yEditor.setText(juce::String(p.y, 3), juce::dontSendNotification);
-            
-            lockButton.setToggleState(p.locked, juce::dontSendNotification);
-            
-            // Visual feedback for lock
-            if (p.locked) nameLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
-            else nameLabel.setColour(juce::Label::textColourId, Theme::textPrimary);
-            
-             deleteButton.setVisible(true);
-             if (p.sourceChannels > 2)
-             {
-                 channelSelector.setVisible(true);
-                     
-                     // Populate if count differs
-                     if (channelSelector.getNumItems() != p.sourceChannels)
-                     {
-                         channelSelector.clear();
-                         for (int i=0; i<p.sourceChannels; ++i)
-                         {
-                             channelSelector.addItem(juce::String(i+1), i+1);
-                         }
-                     }
-                     channelSelector.setSelectedId(p.selectedChannel + 1, juce::dontSendNotification);
-                 }
-                 else
-                 {
-                     channelSelector.setVisible(false);
-                 }
-                 resized(); // Re-layout
-            break;
+            isIncompatible = newIncompat;
+            repaint();
         }
+
+        juce::String displayName = p.name;
+        if (isIncompatible)
+            displayName += "  \u26a0 " + juce::String(p.sourceChannels)
+                         + "ch IR / " + juce::String(numOut) + "ch out";
+
+        nameLabel.setText(displayName, juce::dontSendNotification);
+        nameLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+        nameLabel.setColour(juce::Label::textColourId,
+                            isIncompatible ? juce::Colours::orange
+                                           : (p.locked ? juce::Colours::orange.brighter()
+                                                        : Theme::textPrimary));
+        nameLabel.setTooltip(isIncompatible
+                             ? "IR has " + juce::String(p.sourceChannels) + " channels but output has "
+                               + juce::String(numOut) + ". Use a mono IR or match track channel count."
+                             : "");
+
+        if (!xEditor.hasKeyboardFocus(true))
+            xEditor.setText(juce::String(p.x, 3), juce::dontSendNotification);
+
+        if (!yEditor.hasKeyboardFocus(true))
+            yEditor.setText(juce::String(p.y, 3), juce::dontSendNotification);
+
+        lockButton.setToggleState(p.locked, juce::dontSendNotification);
+        deleteButton.setVisible(true);
+        break;
     }
 }
 
-void IRListItemV4::buttonClicked(juce::Button* b)
+void IRListItem::buttonClicked(juce::Button* b)
 {
     if (b == &lockButton)
-    {
         processor.setPointLocked(pointId, lockButton.getToggleState());
-    }
     else if (b == &deleteButton)
-    {
         processor.removePoint(pointId);
-    }
 }
 
-void IRListItemV4::comboBoxChanged(juce::ComboBox* cb)
-{
-    if (cb == &channelSelector)
-    {
-        int ch = channelSelector.getSelectedId() - 1;
-        if (ch >= 0)
-        {
-            processor.reloadIRChannel(pointId, ch);
-        }
-    }
-}
-
-void IRListItemV4::textEditorReturnKeyPressed(juce::TextEditor& ed)
+void IRListItem::textEditorReturnKeyPressed(juce::TextEditor& ed)
 {
     textEditorFocusLost(ed);
 }
 
-void IRListItemV4::textEditorFocusLost(juce::TextEditor& ed)
+void IRListItem::textEditorFocusLost(juce::TextEditor& ed)
 {
-    float val = ed.getText().getFloatValue();
-    val = juce::jlimit(0.0f, 1.0f, val);
-    
-    // Find current to get other coord
+    float val = juce::jlimit(0.0f, 1.0f, ed.getText().getFloatValue());
+
     float cx = 0.5f, cy = 0.5f;
-    bool found = false;
-    for (auto& p : processor.points) {
-        if (p.id == pointId) {
-            cx = p.x; cy = p.y; found = true; break;
-        }
+    for (auto& p : processor.points)
+    {
+        if (p.id == pointId) { cx = p.x; cy = p.y; break; }
     }
-    
-    if (found) {
-        if (&ed == &xEditor) cx = val;
-        if (&ed == &yEditor) cy = val;
-        processor.updatePointPosition(pointId, cx, cy);
-    }
+
+    if (&ed == &xEditor) cx = val;
+    if (&ed == &yEditor) cy = val;
+
+    processor.updatePointPosition(pointId, cx, cy);
 }
 
-void IRListItemV4::labelTextChanged(juce::Label* labelThatHasChanged)
+void IRListItem::labelTextChanged(juce::Label* labelThatHasChanged)
 {
     if (labelThatHasChanged == &nameLabel)
-    {
         processor.setPointName(pointId, nameLabel.getText(), true);
-    }
 }
 
+// ---------------------------------------------------------------------------
+// IRListComponent
+// ---------------------------------------------------------------------------
 
-//==============================================================================
-IRListComponentV4::IRListComponentV4(IrisVSTV4AudioProcessor& p)
+IRListComponent::IRListComponent(IrisAudioProcessor& p)
     : processor(p)
 {
     addAndMakeVisible(viewport);
     viewport.setViewedComponent(&contentContainer, false);
-    
+
     addAndMakeVisible(titleLabel);
     titleLabel.setText("IRS", juce::dontSendNotification);
     titleLabel.setJustificationType(juce::Justification::centredLeft);
@@ -218,119 +175,91 @@ IRListComponentV4::IRListComponentV4(IrisVSTV4AudioProcessor& p)
     updateContent();
 }
 
-IRListComponentV4::~IRListComponentV4()
-{
-}
+IRListComponent::~IRListComponent() {}
 
-void IRListComponentV4::resized()
+void IRListComponent::resized()
 {
     auto area = getLocalBounds().reduced(2);
-    
-    // Header (Title)
+
     titleLabel.setBounds(area.removeFromTop(20));
-    
-    // Spacer
     area.removeFromTop(5);
-    
-    // Viewport
     viewport.setBounds(area);
-    int contentHeight = items.size() * 30; // 30px row
+
+    const int rowH          = 30;
+    int       contentHeight = static_cast<int>(items.size()) * rowH;
     contentContainer.setBounds(0, 0, viewport.getMaximumVisibleWidth(), contentHeight);
-    
-    for (int i=0; i<items.size(); ++i)
-         items[i]->setBounds(0, i*30, contentContainer.getWidth(), 30);
+
+    for (int i = 0; i < static_cast<int>(items.size()); ++i)
+        items[static_cast<size_t>(i)]->setBounds(0, i * rowH, contentContainer.getWidth(), rowH);
 }
 
-void IRListComponentV4::paint(juce::Graphics& g)
+void IRListComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(Theme::panelBackground); 
-    
-    if (items.empty()) { /* ... */ }
+    g.fillAll(Theme::panelBackground);
 }
 
-void IRListComponentV4::updateContent()
+void IRListComponent::updateContent()
 {
-    // 2. Handle IRs
-    std::vector<juce::Uuid> currentIRIds;
-    for (auto& p : processor.points) {
-        currentIRIds.push_back(p.id);
-    }
-    
-    bool structureChanged = false;
-    if (items.size() != currentIRIds.size()) 
-    {
-        structureChanged = true;
-    }
-    else
-    {
-        for (size_t i=0; i<items.size(); ++i) {
-            if (items[i]->pointId != currentIRIds[i]) {
-                structureChanged = true; break;
-            }
-        }
-    }
-    
+    std::vector<juce::Uuid> currentIds;
+    for (auto& p : processor.points)
+        currentIds.push_back(p.id);
+
+    bool structureChanged = (items.size() != currentIds.size());
+    if (!structureChanged)
+        for (size_t i = 0; i < items.size(); ++i)
+            if (items[i]->pointId != currentIds[i]) { structureChanged = true; break; }
+
     if (structureChanged)
     {
         items.clear();
         contentContainer.removeAllChildren();
-        
+
+        const int rowH = 30;
         int y = 0;
-        int rowH = 30;
-        
-        for (auto id : currentIRIds)
+        for (auto id : currentIds)
         {
-            auto item = std::make_unique<IRListItemV4>(processor, id);
+            auto item = std::make_unique<IRListItem>(processor, id);
             item->setBounds(0, y, contentContainer.getWidth(), rowH);
             contentContainer.addAndMakeVisible(item.get());
             items.push_back(std::move(item));
             y += rowH;
         }
-        
+
         contentContainer.setBounds(0, 0, viewport.getMaximumVisibleWidth(), std::max(10, y));
     }
     else
     {
-        // Just update data
-        for (auto& item : items) {
+        for (auto& item : items)
             item->updateFromModel();
-        }
     }
-    
-    // Ensure container width
-    if (contentContainer.getWidth() != viewport.getWidth()) { 
-        // Force width update
+
+    if (contentContainer.getWidth() != viewport.getWidth())
+    {
         contentContainer.setSize(viewport.getMaximumVisibleWidth(), contentContainer.getHeight());
-         int y = 0;
-         for (auto& item : items) {
-             item->setBounds(0, y, contentContainer.getWidth(), 30);
-             y += 30;
-         }
+        int y = 0;
+        for (auto& item : items)
+        {
+            item->setBounds(0, y, contentContainer.getWidth(), 30);
+            y += 30;
+        }
     }
 }
 
-
-//==============================================================================
-bool IRListComponentV4::isInterestedInFileDrag (const juce::StringArray& files)
+bool IRListComponent::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (auto& f : files)
-    {
-        if (f.endsWithIgnoreCase(".wav") || f.endsWithIgnoreCase(".aif") || f.endsWithIgnoreCase(".aiff") || f.endsWithIgnoreCase(".mp3"))
+        if (f.endsWithIgnoreCase(".wav") || f.endsWithIgnoreCase(".aif")
+            || f.endsWithIgnoreCase(".aiff") || f.endsWithIgnoreCase(".mp3"))
             return true;
-    }
     return false;
 }
 
-void IRListComponentV4::filesDropped (const juce::StringArray& files, int x, int y)
+void IRListComponent::filesDropped (const juce::StringArray& files, int, int)
 {
     for (auto& f : files)
     {
         juce::File file(f);
         if (file.existsAsFile())
-        {
-            // We can add multiple files!
             processor.addIRFromFile(file);
-        }
     }
 }
-

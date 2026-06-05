@@ -1,17 +1,17 @@
 #pragma once
 #include <JuceHeader.h>
-#include "PluginProcessorV4.h"
-#include "IconButtonV4.h"
+#include "PluginProcessor.h"
+#include "IconButton.h"
 
 // Individual list item for a listener
-class ListenerListItemV4 : public juce::Component,
+class ListenerListItem : public juce::Component,
                            public juce::Button::Listener,
                            public juce::TextEditor::Listener,
                            public juce::Label::Listener
 {
 public:
-    ListenerListItemV4(IrisVSTV4AudioProcessor& p, juce::Uuid id, bool local);
-    ~ListenerListItemV4() override;
+    ListenerListItem(IrisAudioProcessor& p, juce::Uuid id, bool local);
+    ~ListenerListItem() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -27,28 +27,28 @@ public:
     bool isLocalList;
 
 private:
-    IrisVSTV4AudioProcessor& processor;
+    IrisAudioProcessor& processor;
     
     juce::Label nameLabel;
     juce::TextEditor xEditor;
     juce::TextEditor yEditor;
-    IconButtonV4 linkToggle { "Link", IconButtonV4::Link };
-    IconButtonV4 lockToggle { "Lock", IconButtonV4::Lock };
+    IconButton linkToggle { "Link", IconButton::Link };
+    IconButton lockToggle { "Lock", IconButton::Lock };
 };
 
 
-class ListenerLinkMatrixComponentV4 : public juce::Component, public juce::Timer
+class ListenerLinkMatrixComponent : public juce::Component, public juce::Timer
 {
 public:
-    ListenerLinkMatrixComponentV4(IrisVSTV4AudioProcessor& p);
-    ~ListenerLinkMatrixComponentV4() override;
+    ListenerLinkMatrixComponent(IrisAudioProcessor& p);
+    ~ListenerLinkMatrixComponent() override;
     
     void paint(juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
 
 private:
-    IrisVSTV4AudioProcessor& processor;
+    IrisAudioProcessor& processor;
     
     struct Cell {
         juce::Uuid rId;
@@ -65,23 +65,23 @@ private:
 };
 
 // Containment list component
-class ListenerListComponentV4 : public juce::Component,
+class ListenerListComponent : public juce::Component,
                                 public juce::Timer
 {
 public:
-    ListenerListComponentV4(IrisVSTV4AudioProcessor& p);
-    ~ListenerListComponentV4() override;
+    ListenerListComponent(IrisAudioProcessor& p);
+    ~ListenerListComponent() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
 
 private:
-    IrisVSTV4AudioProcessor& processor;
+    IrisAudioProcessor& processor;
     
     juce::Viewport viewport;
     juce::Component contentContainer;
-    std::vector<std::unique_ptr<ListenerListItemV4>> items;
+    std::vector<std::unique_ptr<ListenerListItem>> items;
     
     void updateContent();
 };

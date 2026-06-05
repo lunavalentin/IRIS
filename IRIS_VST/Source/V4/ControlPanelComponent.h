@@ -1,17 +1,17 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include "PluginProcessorV4.h"
+#include "PluginProcessor.h"
 
 // Simple table model
 
 
-class ControlPanelComponentV4  : public juce::Component,
+class ControlPanelComponent  : public juce::Component,
                                public juce::Button::Listener
 {
 public:
-    ControlPanelComponentV4(IrisVSTV4AudioProcessor&);
-    ~ControlPanelComponentV4() override;
+    ControlPanelComponent(IrisAudioProcessor&);
+    ~ControlPanelComponent() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -22,7 +22,7 @@ public:
     
 
 private:
-    IrisVSTV4AudioProcessor& audioProcessor;
+    IrisAudioProcessor& audioProcessor;
     
     // --- Row 1 ---
     juce::TextButton addIRButton { "+ IR" };
@@ -47,6 +47,11 @@ private:
     juce::ToggleButton freezeButton { "Freeze" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> freezeAttachment;
     
+    juce::ToggleButton normalizeButton { "Normalize" };
+    juce::ToggleButton alignButton { "Align" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> normalizeAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> alignAttachment;
+    
     juce::Label inertiaLabel;
     juce::Slider inertiaSlider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> inertiaAttachment;
@@ -58,5 +63,5 @@ private:
     // Helpers
     std::unique_ptr<juce::FileChooser> fileChooser;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ControlPanelComponentV4)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ControlPanelComponent)
 };

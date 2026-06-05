@@ -2,12 +2,12 @@
 #include <JuceHeader.h>
 
 // Custom small icon button
-class IconButtonV4 : public juce::Button
+class IconButton : public juce::Button
 {
 public:
     enum IconType { Lock, Delete, Link };
     
-    IconButtonV4(const juce::String& name, IconType t) : juce::Button(name), type(t) {}
+    IconButton(const juce::String& name, IconType t) : juce::Button(name), type(t) {}
     
     void paintButton(juce::Graphics& g, bool shouldDrawButtonAsMouseOver, bool shouldDrawButtonAsDown) override
     {

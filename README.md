@@ -25,6 +25,7 @@ In V4, IRIS has been overhauled with a modern "Flat Utility" aesthetic, symmetri
 - **Occlusion Dynamics (Walls)**: Draw physical walls on the map to accurately attenuate the acoustic contribution of specific IRs when intersected by the listener's line of sight.
 - **Physics Engine**: Sliders for `Inertia` (momentum-based listener gliding) and `Freeze` (locking the engine's interpolation state).
 - **Parametric Spread & Mix**: Dynamically adjust the Gaussian falloff width of the IR points and the dry/wet matrix.
+- **Parallel Convolution**: Active IRs are convolved in parallel across a thread pool, distributing the CPU load across all available cores.
 - **Full OSC Synchronization**: Listeners, IR points, Walls, and global parameters (Spread, Mix, Inertia, Freeze) are seamlessly broadcast and mirrored across all instantiated instances.
 - **Modern UI Redesign**: A flat, minimalist, dark-themed utility aesthetic.
 
@@ -41,19 +42,26 @@ To quickly test the plugin's spatialization and multi-node functionality, a pre-
 ## Build Requirements
 - CMake >= 3.15
 - A C++17 capable compiler (Apple Clang, GCC, MSVC)
-- The JUCE framework will be automatically fetched by CMake during the initial configuration, so no manual installation is required.
+- **JUCE is fetched automatically** by CMake during the initial configuration (via `FetchContent`), so no manual installation is required.
 
 ### Build Instructions
 
-For the cleanest build experience, it is highly recommended to build the plugin residing within your local JUCE framework directory:
-
 ```bash
-cd /path/to/your/JUCE    # Navigate to your installed JUCE folder
-mkdir -p IRIS_Build && cd IRIS_Build
-cmake /path/to/IRIS/IRIS_VST  # Point CMake to the IRIS_VST source folder
+cd IRIS_VST
+mkdir -p build && cd build
+cmake ..
 cmake --build . --target IRIS4_VST3 -j 8
 ```
-The compiled VST3 bundle will be available at `IRIS4_artefacts/Release/VST3/IRIS4.vst3`. Copy it to `~/Library/Audio/Plug-Ins/VST3/`.
+
+The compiled VST3 bundle will be available at `IRIS4_artefacts/VST3/IRIS4.vst3`. Copy it to `~/Library/Audio/Plug-Ins/VST3/`.
+
+Alternatively, use the included convenience script which builds, installs, and cleans up automatically:
+
+```bash
+cd IRIS_VST
+chmod +x compile.sh
+./compile.sh
+```
 
 ## OSC Integration Specs
 IRIS4 uses a decentralized OSC architecture (defaults to sending/receiving on ports 9001/9002).
@@ -72,3 +80,12 @@ IRIS4 uses a decentralized OSC architecture (defaults to sending/receiving on po
 **IR & Environment:**
 - `/iris/ir/pos [string id, float x, float y]`
 - `/iris/wall/pos [string id, float x1, float y1, float x2, float y2]`
+
+## Testing OSC
+
+A Python test script is included for verifying OSC communication:
+
+```bash
+pip install python-osc
+python IRIS_VST/test_osc.py
+```

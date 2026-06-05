@@ -1,8 +1,10 @@
 # macOS
 .DS_Store
+**/.DS_Store
 
 # Build outputs
 build/
+build_tmp/
 Builds/
 out/
 dist/
@@ -36,3 +38,6 @@ Makefile
 # Python (if any tooling)
 __pycache__/
 *.py[cod]
+
+# Build logs
+*.log

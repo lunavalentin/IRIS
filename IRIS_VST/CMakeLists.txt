@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(IRIS_VST VERSION 0.0.1)
+project(IRIS_VST VERSION 4.2.0)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -19,7 +19,7 @@ juce_add_plugin(IRIS4
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
     PLUGIN_MANUFACTURER_CODE IRIS
-    PLUGIN_CODE Iris4
+    PLUGIN_CODE Irs4
     FORMATS VST3 AU
     PRODUCT_NAME "IRIS4"
     VERSION "4.2.0"
@@ -30,26 +30,26 @@ juce_generate_juce_header(IRIS4)
 target_sources(IRIS4
     PRIVATE
         Source/V4/PluginProcessor.cpp
-        Source/V4/PluginProcessorV4.h
+        Source/V4/PluginProcessor.h
         Source/V4/PluginEditor.cpp
-        Source/V4/PluginEditorV4.h
+        Source/V4/PluginEditor.h
         Source/V4/RoomMapComponent.cpp
-        Source/V4/RoomMapComponentV4.h
-        Source/V4/ControlPanelComponentV4.cpp
-        Source/V4/ControlPanelComponentV4.h
+        Source/V4/RoomMapComponent.h
+        Source/V4/ControlPanelComponent.cpp
+        Source/V4/ControlPanelComponent.h
         Source/V4/IRListComponent.cpp
-        Source/V4/IRListComponentV4.h
-        Source/V4/ListenerListComponentV4.cpp
-        Source/V4/ListenerListComponentV4.h
+        Source/V4/IRListComponent.h
+        Source/V4/ListenerListComponent.cpp
+        Source/V4/ListenerListComponent.h
         Source/V4/WallListComponent.cpp
-        Source/V4/WallListComponentV4.h
+        Source/V4/WallListComponent.h
         Source/V4/IrisOSCManager.cpp
         Source/V4/IrisOSCManager.h
         Source/V4/Theme.cpp
         Source/V4/Theme.h
         Source/V4/IrisLookAndFeel.cpp
         Source/V4/IrisLookAndFeel.h
-        Source/V4/IconButtonV4.h
+        Source/V4/IconButton.h
 )
 
 target_compile_definitions(IRIS4
