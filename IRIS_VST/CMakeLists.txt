@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(IRIS_VST VERSION 4.2.0)
+project(IRIS_VST VERSION 4.3.0)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -22,7 +22,7 @@ juce_add_plugin(IRIS4
     PLUGIN_CODE Irs4
     FORMATS VST3 AU
     PRODUCT_NAME "IRIS4"
-    VERSION "4.2.0"
+    VERSION "4.3.0"
 )
 
 juce_generate_juce_header(IRIS4)

@@ -194,7 +194,15 @@ public:
     bool broadcastListener = true;
     bool broadcastIRs      = true;
     bool broadcastWalls    = true;
-    bool broadcastGlobals  = true;
+
+    // Per-parameter broadcast flags
+    bool broadcastInertia     = true;
+    bool broadcastFreeze      = true;
+    bool broadcastSpread      = true;
+    bool broadcastMix         = false;   // OFF by default — mix is usually per-instance
+    bool broadcastWallOpacity = true;
+    bool broadcastNormalize   = true;
+    bool broadcastAlign       = true;
 
     std::atomic<bool> isUpdatingFromOSC { false };
 
@@ -230,6 +238,12 @@ public:
     std::atomic<float>* wallOpacityParam = nullptr;
     std::atomic<float>* normalizeParam   = nullptr;
     std::atomic<float>* alignParam       = nullptr;
+    std::atomic<float>* outputGainParam  = nullptr;
+    std::atomic<float>* listenerXParam   = nullptr;
+    std::atomic<float>* listenerYParam   = nullptr;
+
+    // Prevents feedback loop when syncing listener position to/from parameter
+    std::atomic<bool> isUpdatingListenerFromParam { false };
 
     // Audio format manager
     juce::AudioFormatManager formatManager;

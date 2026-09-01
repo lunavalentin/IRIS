@@ -65,6 +65,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout IrisAudioProcessor::createPa
     layout.add(std::make_unique<juce::AudioParameterBool> ("normalize",   "Normalize",     true));
     layout.add(std::make_unique<juce::AudioParameterBool> ("align",       "Align",         true));
 
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        "outputGain", "Output Gain",
+        juce::NormalisableRange<float>(-60.0f, 12.0f, 0.1f),
+        -30.0f));
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>("listenerX", "Listener X", 0.0f, 1.0f, 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>("listenerY", "Listener Y", 0.0f, 1.0f, 0.5f));
+
     return layout;
 }
 
@@ -92,6 +100,9 @@ IrisAudioProcessor::IrisAudioProcessor()
     wallOpacityParam = parameters.getRawParameterValue("wallOpacity");
     normalizeParam   = parameters.getRawParameterValue("normalize");
     alignParam       = parameters.getRawParameterValue("align");
+    outputGainParam  = parameters.getRawParameterValue("outputGain");
+    listenerXParam   = parameters.getRawParameterValue("listenerX");
+    listenerYParam   = parameters.getRawParameterValue("listenerY");
 
     formatManager.registerBasicFormats();
     renderState = std::make_shared<RenderState>();
@@ -110,6 +121,8 @@ IrisAudioProcessor::IrisAudioProcessor()
     parameters.addParameterListener("wallOpacity", this);
     parameters.addParameterListener("normalize",   this);
     parameters.addParameterListener("align",       this);
+    parameters.addParameterListener("listenerX",   this);
+    parameters.addParameterListener("listenerY",   this);
 
     startTimerHz(60);
     oscManager.addProcessor(this);
@@ -362,6 +375,10 @@ void IrisAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         buffer.applyGain(ch, 0, numSamples, effectiveWet);
         buffer.addFrom(ch, 0, inputBuffer, inputCh, 0, numSamples, 1.0f - effectiveWet);
     }
+
+    // Output gain (dB)
+    const float gainLin = juce::Decibels::decibelsToGain(outputGainParam->load());
+    buffer.applyGain(gainLin);
 }
 
 // ---------------------------------------------------------------------------
@@ -1027,8 +1044,29 @@ void IrisAudioProcessor::parameterChanged(const juce::String& parameterID, float
     if (parameterID == "normalize" || parameterID == "align")
         reprocessIRPoints();
 
-    if (!isUpdatingFromOSC.load() && broadcastGlobals)
-        oscManager.setGlobalParam(parameterID, newValue, this);
+    // Listener X/Y changed from DAW automation or envelope
+    if ((parameterID == "listenerX" || parameterID == "listenerY") && !isUpdatingListenerFromParam.load())
+    {
+        float lx = listenerXParam->load();
+        float ly = listenerYParam->load();
+        updateListenerPosition(localAudioListener.id, lx, ly, true);
+    }
+
+    // Per-parameter broadcast
+    if (!isUpdatingFromOSC.load())
+    {
+        bool shouldBroadcast = false;
+        if      (parameterID == "inertia")     shouldBroadcast = broadcastInertia;
+        else if (parameterID == "freeze")      shouldBroadcast = broadcastFreeze;
+        else if (parameterID == "spread")      shouldBroadcast = broadcastSpread;
+        else if (parameterID == "mix")         shouldBroadcast = broadcastMix;
+        else if (parameterID == "wallOpacity") shouldBroadcast = broadcastWallOpacity;
+        else if (parameterID == "normalize")   shouldBroadcast = broadcastNormalize;
+        else if (parameterID == "align")       shouldBroadcast = broadcastAlign;
+
+        if (shouldBroadcast)
+            oscManager.setGlobalParam(parameterID, newValue, this);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1129,6 +1167,18 @@ void IrisAudioProcessor::timerCallback()
     float inertia      = inertiaParam->load();
     float physicsAlpha = 1.0f - 0.98f * inertia;
 
+    // Sync listener X/Y parameters → local listener target (from DAW automation)
+    // This is already handled in parameterChanged, but we also sync in the
+    // opposite direction: push listener position → parameter for envelope display.
+    {
+        isUpdatingListenerFromParam.store(true);
+        if (auto* px = parameters.getParameter("listenerX"))
+            px->setValueNotifyingHost(px->convertTo0to1(localAudioListener.x));
+        if (auto* py = parameters.getParameter("listenerY"))
+            py->setValueNotifyingHost(py->convertTo0to1(localAudioListener.y));
+        isUpdatingListenerFromParam.store(false);
+    }
+
     auto applyPhysics = [&](NetworkListener& listener)
     {
         if (frozen) return;
@@ -1207,7 +1257,7 @@ void IrisAudioProcessor::timerCallback()
 
     if (!isBenchmarking && (changed || frozen))
     {
-        if (!currentNearestNeighbors.empty())
+        if (!currentNearestNeighbors.empty() && sumForNorm > 0.001f)
         {
             if (currentNearestNeighbors.size() > 0) *weight1 = smoothedWeights[currentNearestNeighbors[0].id] / sumForNorm; else *weight1 = 0;
             if (currentNearestNeighbors.size() > 1) *weight2 = smoothedWeights[currentNearestNeighbors[1].id] / sumForNorm; else *weight2 = 0;

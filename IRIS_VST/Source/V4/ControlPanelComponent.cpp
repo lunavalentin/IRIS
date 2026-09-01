@@ -70,6 +70,17 @@ ControlPanelComponent::ControlPanelComponent(IrisAudioProcessor& p)
     spreadSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
     spreadAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.parameters, "spread", spreadSlider);
+
+    addAndMakeVisible(outputGainLabel);
+    outputGainLabel.setText("Output", juce::dontSendNotification);
+    outputGainLabel.setJustificationType(juce::Justification::centred);
+
+    addAndMakeVisible(outputGainSlider);
+    outputGainSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    outputGainSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 55, 20);
+    outputGainSlider.setTextValueSuffix(" dB");
+    outputGainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.parameters, "outputGain", outputGainSlider);
 }
 
 ControlPanelComponent::~ControlPanelComponent() {}
@@ -117,9 +128,12 @@ void ControlPanelComponent::resized()
 
     area.removeFromTop(gap);
 
-    auto row3 = area.removeFromTop(btnH);
-    normalizeButton.setBounds(row3.removeFromLeft(120).reduced(5, 0));
-    alignButton.setBounds(row3.removeFromLeft(120).reduced(5, 0));
+    auto row2b = area.removeFromTop(btnH);
+    normalizeButton.setBounds(row2b.removeFromLeft(120).reduced(5, 0));
+    alignButton.setBounds(row2b.removeFromLeft(120).reduced(5, 0));
+    auto gainArea = row2b;
+    outputGainLabel.setBounds(gainArea.removeFromLeft(45));
+    outputGainSlider.setBounds(gainArea);
 
     // Interaction section starts at a fixed Y so it stays aligned with the divider drawn in paint().
     const int interactionY = 145;
@@ -195,7 +209,14 @@ void ControlPanelComponent::buttonClicked(juce::Button* b)
         m.addItem("Listener",     true, audioProcessor.broadcastListener, [this]() { audioProcessor.broadcastListener = !audioProcessor.broadcastListener; });
         m.addItem("IRs",          true, audioProcessor.broadcastIRs,      [this]() { audioProcessor.broadcastIRs      = !audioProcessor.broadcastIRs;      });
         m.addItem("Walls",        true, audioProcessor.broadcastWalls,    [this]() { audioProcessor.broadcastWalls    = !audioProcessor.broadcastWalls;    });
-        m.addItem("Broadcasting", true, audioProcessor.broadcastGlobals,  [this]() { audioProcessor.broadcastGlobals  = !audioProcessor.broadcastGlobals;  });
+        m.addSeparator();
+        m.addItem("Inertia",      true, audioProcessor.broadcastInertia,     [this]() { audioProcessor.broadcastInertia     = !audioProcessor.broadcastInertia;     });
+        m.addItem("Freeze",       true, audioProcessor.broadcastFreeze,      [this]() { audioProcessor.broadcastFreeze      = !audioProcessor.broadcastFreeze;      });
+        m.addItem("Spread",       true, audioProcessor.broadcastSpread,      [this]() { audioProcessor.broadcastSpread      = !audioProcessor.broadcastSpread;      });
+        m.addItem("Mix",          true, audioProcessor.broadcastMix,         [this]() { audioProcessor.broadcastMix         = !audioProcessor.broadcastMix;         });
+        m.addItem("Wall Opacity", true, audioProcessor.broadcastWallOpacity, [this]() { audioProcessor.broadcastWallOpacity = !audioProcessor.broadcastWallOpacity; });
+        m.addItem("Normalize",    true, audioProcessor.broadcastNormalize,   [this]() { audioProcessor.broadcastNormalize   = !audioProcessor.broadcastNormalize;   });
+        m.addItem("Align",        true, audioProcessor.broadcastAlign,       [this]() { audioProcessor.broadcastAlign       = !audioProcessor.broadcastAlign;       });
         m.addSeparator();
         m.addItem("Force Send Full Sync", [this]() { audioProcessor.requestFullOSCSync(); });
         m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(broadcastButton));

@@ -43,6 +43,11 @@ private:
     
     juce::TextButton saveLayoutButton { "Save Layout" };
     
+    // --- Row 2b: Output Gain ---
+    juce::Label outputGainLabel;
+    juce::Slider outputGainSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> outputGainAttachment;
+
     // --- Row 3 ---
     juce::ToggleButton freezeButton { "Freeze" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> freezeAttachment;
