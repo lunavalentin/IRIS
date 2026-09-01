@@ -25,8 +25,11 @@ In V4, IRIS has been overhauled with a modern "Flat Utility" aesthetic, symmetri
 - **Occlusion Dynamics (Walls)**: Draw physical walls on the map to accurately attenuate the acoustic contribution of specific IRs when intersected by the listener's line of sight.
 - **Physics Engine**: Sliders for `Inertia` (momentum-based listener gliding) and `Freeze` (locking the engine's interpolation state).
 - **Parametric Spread & Mix**: Dynamically adjust the Gaussian falloff width of the IR points and the dry/wet matrix.
+- **Output Gain**: Headroom control (-60 dB to +12 dB) to manage the summing saturation of multiple IRs, with a safe default of -30 dB.
+- **Automatable Listener**: The listener's X and Y coordinates are exposed as plugin parameters for DAW envelopes and automation.
 - **Parallel Convolution**: Active IRs are convolved in parallel across a thread pool, distributing the CPU load across all available cores.
 - **Full OSC Synchronization**: Listeners, IR points, Walls, and global parameters (Spread, Mix, Inertia, Freeze) are seamlessly broadcast and mirrored across all instantiated instances.
+- **Granular OSC Broadcasting**: Per-parameter checkboxes to control exactly which parameters (e.g. Inertia vs Mix) are sent over the network.
 - **Modern UI Redesign**: A flat, minimalist, dark-themed utility aesthetic.
 
 ## Demo Layout
@@ -76,6 +79,8 @@ IRIS4 uses a decentralized OSC architecture (defaults to sending/receiving on po
 - `/iris/param/spread [float]`
 - `/iris/param/mix [float]`
 - `/iris/param/wallOpacity [float]`
+- `/iris/param/normalize [float]`
+- `/iris/param/align [float]`
 
 **IR & Environment:**
 - `/iris/ir/pos [string id, float x, float y]`
