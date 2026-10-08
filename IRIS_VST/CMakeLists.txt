@@ -1,14 +1,34 @@
 cmake_minimum_required(VERSION 3.15)
 
+# --- macOS portability (must come before project()) ---------------------
+# Without these, CMake builds only for the host CPU (arm64 on Apple Silicon)
+# and stamps the binary with the host macOS version as the minimum OS,
+# so the plugin will not load on Intel Macs or on older macOS releases.
+# Override on the command line with -DCMAKE_OSX_ARCHITECTURES=... etc.
+if (APPLE)
+    if (NOT CMAKE_OSX_ARCHITECTURES)
+        set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures" FORCE)
+    endif()
+    if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS version" FORCE)
+    endif()
+endif()
+
 project(IRIS_VST VERSION 4.3.0)
 
-include(FetchContent)
-FetchContent_Declare(
-    JUCE
-    GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG        8.0.12
-)
-FetchContent_MakeAvailable(JUCE)
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../dev/IRIS_VST/JUCE")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../dev/IRIS_VST/JUCE" JUCE)
+elseif (EXISTS "/Users/luna/Documents/Research/Codes/IRIS/dev/IRIS_VST/JUCE")
+    add_subdirectory(/Users/luna/Documents/Research/Codes/IRIS/dev/IRIS_VST/JUCE JUCE)
+else()
+    include(FetchContent)
+    FetchContent_Declare(
+        JUCE
+        GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+        GIT_TAG        8.0.12
+    )
+    FetchContent_MakeAvailable(JUCE)
+endif()
 
 juce_add_plugin(IRIS4
     COMPANY_NAME "IRIS"

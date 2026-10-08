@@ -43,7 +43,7 @@ void RoomMapComponent::paint (juce::Graphics& g)
     // Walls
     float wallOpacity = audioProcessor.wallOpacityParam
                         ? audioProcessor.wallOpacityParam->load()
-                        : 0.8f;
+                        : 1.0f;
 
     for (const auto& wall : audioProcessor.walls)
     {

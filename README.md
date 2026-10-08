@@ -58,6 +58,15 @@ cmake --build . --target IRIS4_VST3 -j 8
 
 The compiled VST3 bundle will be available at `IRIS4_artefacts/VST3/IRIS4.vst3`. Copy it to `~/Library/Audio/Plug-Ins/VST3/`.
 
+On macOS the build produces a Universal binary (Apple Silicon + Intel) targeting macOS 10.13 and later by default. Check with:
+
+```bash
+lipo -info IRIS4_artefacts/VST3/IRIS4.vst3/Contents/MacOS/IRIS4          # expect: x86_64 arm64
+vtool -show-build IRIS4_artefacts/VST3/IRIS4.vst3/Contents/MacOS/IRIS4   # expect: minos 10.13
+```
+
+If you reuse an old `build/` folder created before this change, delete it first so CMake picks up the new settings.
+
 Alternatively, use the included convenience script which builds, installs, and cleans up automatically:
 
 ```bash

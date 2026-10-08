@@ -211,7 +211,6 @@ void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
         float val = message[0].getFloat32();
         notifyProcessors([val](IrisAudioProcessor* p)
         {
-            if (p->mixParam) p->mixParam->store(val);
             p->updateParameterNotifiers("mix", val);
         });
     }
@@ -220,7 +219,6 @@ void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
         float val = message[0].getFloat32();
         notifyProcessors([val](IrisAudioProcessor* p)
         {
-            if (p->spreadParam) p->spreadParam->store(val);
             p->updateParameterNotifiers("spread", val);
         });
     }
@@ -229,7 +227,6 @@ void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
         float val = message[0].getFloat32();
         notifyProcessors([val](IrisAudioProcessor* p)
         {
-            if (p->inertiaParam) p->inertiaParam->store(val);
             p->updateParameterNotifiers("inertia", val);
         });
     }
@@ -238,7 +235,6 @@ void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
         float val = message[0].getFloat32();
         notifyProcessors([val](IrisAudioProcessor* p)
         {
-            if (p->freezeParam) p->freezeParam->store(val);
             p->updateParameterNotifiers("freeze", val);
         });
     }
@@ -247,7 +243,6 @@ void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
         float val = message[0].getFloat32();
         notifyProcessors([val](IrisAudioProcessor* p)
         {
-            if (p->wallOpacityParam) p->wallOpacityParam->store(val);
             p->updateParameterNotifiers("wallOpacity", val);
         });
     }
@@ -328,12 +323,8 @@ void IrisOSCManager::setGlobalParam(const juce::String& paramId, float value, Ir
 {
     notifyProcessors([paramId, value](IrisAudioProcessor* p)
     {
-        if      (paramId == "mix")         { if (p->mixParam)         p->mixParam->store(value); }
-        else if (paramId == "spread")      { if (p->spreadParam)      p->spreadParam->store(value); }
-        else if (paramId == "inertia")     { if (p->inertiaParam)     p->inertiaParam->store(value); }
-        else if (paramId == "freeze")      { if (p->freezeParam)      p->freezeParam->store(value); }
-        else if (paramId == "wallOpacity") { if (p->wallOpacityParam) p->wallOpacityParam->store(value); }
-
+        // Go through the parameter object only (not the raw atomic), so the APVTS
+        // state tree, the host and the UI attachments all see the change.
         p->updateParameterNotifiers(paramId, value);
     }, source);
 

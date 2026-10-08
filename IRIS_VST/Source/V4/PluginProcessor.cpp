@@ -61,7 +61,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout IrisAudioProcessor::createPa
     layout.add(std::make_unique<juce::AudioParameterBool> ("freeze",      "Freeze",        false));
     layout.add(std::make_unique<juce::AudioParameterFloat>("spread",      "Spread",        0.0f, 1.0f, 0.3f));
     layout.add(std::make_unique<juce::AudioParameterFloat>("mix",         "Mix",           0.0f, 1.0f, 1.0f));
-    layout.add(std::make_unique<juce::AudioParameterFloat>("wallOpacity", "Wall Opacity",  0.0f, 1.0f, 0.8f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>("wallOpacity", "Wall Opacity",  0.0f, 1.0f, 1.0f));
     layout.add(std::make_unique<juce::AudioParameterBool> ("normalize",   "Normalize",     true));
     layout.add(std::make_unique<juce::AudioParameterBool> ("align",       "Align",         true));
 
@@ -218,6 +218,16 @@ bool IrisAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) con
 
 void IrisAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    // Some hosts call prepareToPlay while the audio callback is still running
+    // (e.g. when DSP is switched on or the block size changes). Resizing the
+    // buffers below would then race with processBlock and can leave it writing
+    // through a null/dangling channel pointer. JUCE wrappers call processBlock
+    // under getCallbackLock(), so holding it here serialises the two.
+    const juce::ScopedLock cbLock (getCallbackLock());
+
+    // Guard against hosts that report 0 (or nonsense) as the maximum block size.
+    if (samplesPerBlock <= 0) samplesPerBlock = 512;
+
     processSpec.sampleRate       = sampleRate;
     processSpec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
     processSpec.numChannels      = 1;
@@ -233,8 +243,30 @@ void IrisAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     for (auto& buf : irScratchBuffers)
         buf.setSize(numOut, samplesPerBlock, false, false, true);
 
-    for (auto& p : points)
-        updateConvolver(p);
+    {
+        juce::ScopedLock sl(stateLock);
+
+        for (auto& p : points)
+            updateConvolver(p);
+
+        // The current RenderState still references convolvers prepared with the
+        // OLD spec (old block size). Swap in the freshly prepared ones now so the
+        // audio thread never feeds a block larger than a convolver was prepared for.
+        if (auto old = std::atomic_load(&renderState))
+        {
+            auto fresh = std::make_shared<RenderState>(*old);
+            for (auto& air : fresh->activeIRs)
+            {
+                air.convolvers.clear();
+                for (auto& p : points)
+                    if (p.id == air.id) { air.convolvers = p.convolvers; break; }
+            }
+            prevRenderState = old;   // keep alive off the audio thread
+            std::atomic_store(&renderState, fresh);
+        }
+    }
+
+    preparedBlockSize.store(samplesPerBlock);
 }
 
 
@@ -248,14 +280,54 @@ void IrisAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 {
     juce::ScopedNoDenormals noDenormals;
 
+    const int maxBlock   = preparedBlockSize.load();
+    const int numSamples = buffer.getNumSamples();
+
+    // Not prepared yet (host called process before prepareToPlay): output silence
+    // rather than touching unallocated buffers.
+    if (maxBlock <= 0 || inputBuffer.getNumSamples() < maxBlock || numSamples <= 0)
+    {
+        buffer.clear();
+        return;
+    }
+
+    if (numSamples <= maxBlock)
+    {
+        processSubBlock(buffer);
+        return;
+    }
+
+    // Host sent a larger block than it announced in prepareToPlay.
+    // Process it in prepared-size slices instead of overrunning our buffers.
+    const int numCh = buffer.getNumChannels();
+    for (int start = 0; start < numSamples; start += maxBlock)
+    {
+        const int len = std::min(maxBlock, numSamples - start);
+        juce::AudioBuffer<float> slice(buffer.getArrayOfWritePointers(), numCh, start, len);
+        processSubBlock(slice);
+    }
+}
+
+void IrisAudioProcessor::processSubBlock (juce::AudioBuffer<float>& buffer)
+{
     std::shared_ptr<RenderState> state = std::atomic_load(&renderState);
 
-    const int numOutputCh = buffer.getNumChannels();
-    const int numInputCh  = getTotalNumInputChannels();
     const int numSamples  = buffer.getNumSamples();
+    const int numOutputCh = buffer.getNumChannels();
+
+    // Never index past what was allocated in prepareToPlay, whatever the host passes.
+    const int numInputCh  = std::min({ getTotalNumInputChannels(),
+                                       inputBuffer.getNumChannels(),
+                                       buffer.getNumChannels() });
+
+    if (numInputCh <= 0)
+    {
+        buffer.clear();
+        return;
+    }
 
     // Copy input into pre-allocated buffer — no heap allocation on the audio thread.
-    for (int ch = 0; ch < std::min(numInputCh, inputBuffer.getNumChannels()); ++ch)
+    for (int ch = 0; ch < numInputCh; ++ch)
         inputBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
     buffer.clear();
@@ -266,7 +338,8 @@ void IrisAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         // Each IR writes into its own pre-allocated scratch buffer, so there are
         // no data races between jobs. We use an atomic counter as a lightweight
         // barrier: the last job to finish signals the WaitableEvent.
-        const int numActive = static_cast<int>(state->activeIRs.size());
+        // Capped at the number of pre-allocated scratch buffers.
+        const int numActive = std::min(static_cast<int>(state->activeIRs.size()), kMaxParallelIRs);
 
         // Count jobs that actually need processing.
         int jobCount = 0;
@@ -310,7 +383,8 @@ void IrisAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                     {
                         const int numCh = std::min({ numOutputCh,
                                                     static_cast<int>(ir.convolvers.size()),
-                                                    numInputCh });
+                                                    numInputCh,
+                                                    scratch.getNumChannels() });
 
                         for (int ch = 0; ch < numCh; ++ch)
                         {
@@ -356,7 +430,8 @@ void IrisAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 {
                     const int numCh = std::min({ numOutputCh,
                                                 static_cast<int>(ir.convolvers.size()),
-                                                numInputCh });
+                                                numInputCh,
+                                                scratch.getNumChannels() });
                     for (int ch = 0; ch < numCh; ++ch)
                         buffer.addFrom(ch, 0, scratch, ch, 0, numSamples, ir.weight);
                 }
@@ -373,7 +448,8 @@ void IrisAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     {
         const int inputCh = (numInputCh == 1) ? 0 : ch;
         buffer.applyGain(ch, 0, numSamples, effectiveWet);
-        buffer.addFrom(ch, 0, inputBuffer, inputCh, 0, numSamples, 1.0f - effectiveWet);
+        if (inputCh < numInputCh)
+            buffer.addFrom(ch, 0, inputBuffer, inputCh, 0, numSamples, 1.0f - effectiveWet);
     }
 
     // Output gain (dB)
@@ -1052,8 +1128,9 @@ void IrisAudioProcessor::parameterChanged(const juce::String& parameterID, float
         updateListenerPosition(localAudioListener.id, lx, ly, true);
     }
 
-    // Per-parameter broadcast
-    if (!isUpdatingFromOSC.load())
+    // Per-parameter broadcast (never while restoring a saved session — otherwise
+    // each instance being restored overwrites the values of the instances before it)
+    if (!isUpdatingFromOSC.load() && !isRestoringState.load())
     {
         bool shouldBroadcast = false;
         if      (parameterID == "inertia")     shouldBroadcast = broadcastInertia;
@@ -1082,10 +1159,12 @@ void IrisAudioProcessor::updateWeightsGaussian()
         return;
     }
 
-    float spread   = spreadParam->load();
-    float sigmaVal = 0.05f + 1.5f * spread * spread;
+    float spread   = juce::jlimit(0.0f, 1.0f, spreadParam ? spreadParam->load() : 0.3f);
+    // Dynamic sigma allowing pinpoint accuracy (0.001) down to spread=0
+    // Quadratic curve gives fine control at low spread values and broad diffusion at high spread
+    float sigmaVal = 0.001f + 1.5f * (spread * spread);
 
-    float baseOpacity = wallOpacityParam ? wallOpacityParam->load() : 0.8f;
+    float baseOpacity = wallOpacityParam ? wallOpacityParam->load() : 1.0f;
 
     std::vector<std::pair<float, IRPoint*>> rawWeights;
     float maxWeight = 0.0f;
@@ -1132,8 +1211,20 @@ void IrisAudioProcessor::updateWeightsGaussian()
     std::sort(rawWeights.begin(), rawWeights.end(),
               [](const auto& a, const auto& b){ return a.first > b.first; });
 
+    // Dynamic kMin based on spread:
+    // At near-zero spread (spread < 0.03), allow single nearest neighbor (kMin = 1, zero bleed).
+    // As spread widens, scale kMin smoothly up to 4.
+    int kMin = 4;
+    if (spread < 0.03f)
+        kMin = 1;
+    else if (spread < 0.10f)
+        kMin = 2;
+    else if (spread < 0.20f)
+        kMin = 3;
+
+    if (maxActiveOverride > 0)
+        kMin = std::min(kMin, maxActiveOverride);
     const int kMax = (maxActiveOverride > 0) ? maxActiveOverride : 8;
-    const int kMin = (maxActiveOverride > 0) ? std::min(4, maxActiveOverride) : 4;
 
     std::set<juce::Uuid> nextActiveIDs;
 
@@ -1300,6 +1391,28 @@ void IrisAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     juce::XmlElement xml("IRIS_STATE");
 
+    // 1. Full AudioProcessorValueTreeState serialization
+    auto state = parameters.copyState();
+    if (std::unique_ptr<juce::XmlElement> paramsTreeXml = state.createXml())
+        xml.addChildElement(paramsTreeXml.release());
+
+    // 2. Explicit PARAMETERS element for absolute safety / compatibility across versions
+    auto* paramsXml = xml.createNewChildElement("PARAMETERS_EXPLICIT");
+    if (spreadParam)      paramsXml->setAttribute("spread",      spreadParam->load());
+    if (wallOpacityParam) paramsXml->setAttribute("wallOpacity", wallOpacityParam->load());
+    if (normalizeParam)   paramsXml->setAttribute("normalize",   normalizeParam->load() > 0.5f);
+    if (alignParam)       paramsXml->setAttribute("align",       alignParam->load() > 0.5f);
+    if (inertiaParam)     paramsXml->setAttribute("inertia",     inertiaParam->load());
+    if (freezeParam)      paramsXml->setAttribute("freeze",      freezeParam->load() > 0.5f);
+    if (mixParam)         paramsXml->setAttribute("mix",         mixParam->load());
+    if (outputGainParam)  paramsXml->setAttribute("outputGain",  outputGainParam->load());
+    if (listenerXParam)   paramsXml->setAttribute("listenerX",   listenerXParam->load());
+    if (listenerYParam)   paramsXml->setAttribute("listenerY",   listenerYParam->load());
+
+    // Also set on root element for quick inspection and backwards compatibility
+    if (spreadParam)      xml.setAttribute("spread",      spreadParam->load());
+    if (wallOpacityParam) xml.setAttribute("wallOpacity", wallOpacityParam->load());
+
     auto* pointsXml = xml.createNewChildElement("POINTS");
     for (const auto& p : points)
     {
@@ -1333,6 +1446,20 @@ void IrisAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     netXml->setAttribute("localListenerName", localAudioListener.name);
     netXml->setAttribute("selectedListenerId", selectedListenerId.toString());
     netXml->setAttribute("localLocked",       localAudioListener.locked);
+    netXml->setAttribute("localX",            localAudioListener.x);
+    netXml->setAttribute("localY",            localAudioListener.y);
+
+    auto* bcXml = xml.createNewChildElement("BROADCAST_FLAGS");
+    bcXml->setAttribute("listener",    broadcastListener);
+    bcXml->setAttribute("irs",         broadcastIRs);
+    bcXml->setAttribute("walls",       broadcastWalls);
+    bcXml->setAttribute("inertia",     broadcastInertia);
+    bcXml->setAttribute("freeze",      broadcastFreeze);
+    bcXml->setAttribute("spread",      broadcastSpread);
+    bcXml->setAttribute("mix",         broadcastMix);
+    bcXml->setAttribute("wallOpacity", broadcastWallOpacity);
+    bcXml->setAttribute("normalize",   broadcastNormalize);
+    bcXml->setAttribute("align",       broadcastAlign);
 
     copyXmlToBinary(xml, destData);
 }
@@ -1342,6 +1469,53 @@ void IrisAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
     std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
     if (!xmlState || !xmlState->hasTagName("IRIS_STATE")) return;
 
+    isRestoringState.store(true);
+    struct RestoreGuard { std::atomic<bool>& f; ~RestoreGuard() { f.store(false); } } restoreGuard { isRestoringState };
+
+    // --- Phase 1: Restore parameters FIRST so align/normalize/spread/wallOpacity are set ---
+    if (auto* paramsTreeXml = xmlState->getChildByName(parameters.state.getType()))
+    {
+        parameters.replaceState(juce::ValueTree::fromXml(*paramsTreeXml));
+    }
+
+    auto restoreParam = [this](const juce::String& paramID, float val)
+    {
+        if (auto* p = parameters.getParameter(paramID))
+            p->setValueNotifyingHost(p->convertTo0to1(val));
+    };
+
+    if (auto* paramsXml = xmlState->getChildByName("PARAMETERS_EXPLICIT"))
+    {
+        if (paramsXml->hasAttribute("spread"))
+            restoreParam("spread", static_cast<float>(paramsXml->getDoubleAttribute("spread", 0.3)));
+        if (paramsXml->hasAttribute("wallOpacity"))
+            restoreParam("wallOpacity", static_cast<float>(paramsXml->getDoubleAttribute("wallOpacity", 1.0)));
+        if (paramsXml->hasAttribute("normalize"))
+            restoreParam("normalize", paramsXml->getBoolAttribute("normalize", true) ? 1.0f : 0.0f);
+        if (paramsXml->hasAttribute("align"))
+            restoreParam("align", paramsXml->getBoolAttribute("align", true) ? 1.0f : 0.0f);
+        if (paramsXml->hasAttribute("inertia"))
+            restoreParam("inertia", static_cast<float>(paramsXml->getDoubleAttribute("inertia", 0.0)));
+        if (paramsXml->hasAttribute("freeze"))
+            restoreParam("freeze", paramsXml->getBoolAttribute("freeze", false) ? 1.0f : 0.0f);
+        if (paramsXml->hasAttribute("mix"))
+            restoreParam("mix", static_cast<float>(paramsXml->getDoubleAttribute("mix", 1.0)));
+        if (paramsXml->hasAttribute("outputGain"))
+            restoreParam("outputGain", static_cast<float>(paramsXml->getDoubleAttribute("outputGain", -30.0)));
+        if (paramsXml->hasAttribute("listenerX"))
+            restoreParam("listenerX", static_cast<float>(paramsXml->getDoubleAttribute("listenerX", 0.5)));
+        if (paramsXml->hasAttribute("listenerY"))
+            restoreParam("listenerY", static_cast<float>(paramsXml->getDoubleAttribute("listenerY", 0.5)));
+    }
+    else
+    {
+        if (xmlState->hasAttribute("spread"))
+            restoreParam("spread", static_cast<float>(xmlState->getDoubleAttribute("spread", 0.3)));
+        if (xmlState->hasAttribute("wallOpacity"))
+            restoreParam("wallOpacity", static_cast<float>(xmlState->getDoubleAttribute("wallOpacity", 1.0)));
+    }
+
+    // --- Phase 2: Restore Points ---
     points.clear();
 
     if (auto* pointsXml = xmlState->getChildByName("POINTS"))
@@ -1349,10 +1523,11 @@ void IrisAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
         for (auto* pXml : pointsXml->getChildIterator())
         {
             IRPoint p;
-            p.id   = juce::Uuid(pXml->getStringAttribute("id"));
-            p.name = pXml->getStringAttribute("name");
-            p.x    = static_cast<float>(pXml->getDoubleAttribute("x"));
-            p.y    = static_cast<float>(pXml->getDoubleAttribute("y"));
+            p.id     = juce::Uuid(pXml->getStringAttribute("id"));
+            p.name   = pXml->getStringAttribute("name");
+            p.x      = static_cast<float>(pXml->getDoubleAttribute("x"));
+            p.y      = static_cast<float>(pXml->getDoubleAttribute("y"));
+            p.locked = pXml->getBoolAttribute("locked", false);
 
             juce::File f(pXml->getStringAttribute("filePath"));
             p.sourceFile = f;
@@ -1386,6 +1561,7 @@ void IrisAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
         }
     }
 
+    // --- Phase 3: Restore Walls ---
     walls.clear();
     if (auto* wallsXml = xmlState->getChildByName("WALLS"))
     {
@@ -1398,12 +1574,13 @@ void IrisAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
             w.y1          = static_cast<float>(wXml->getDoubleAttribute("y1"));
             w.x2          = static_cast<float>(wXml->getDoubleAttribute("x2"));
             w.y2          = static_cast<float>(wXml->getDoubleAttribute("y2"));
-            w.locked      = wXml->getBoolAttribute("locked");
+            w.locked      = wXml->getBoolAttribute("locked", false);
             w.attenuation = static_cast<float>(wXml->getDoubleAttribute("attenuation", 0.5));
             walls.push_back(w);
         }
     }
 
+    // --- Phase 4: Restore Network / Listener State ---
     if (auto* netXml = xmlState->getChildByName("NETWORK_STATE"))
     {
         juce::Uuid savedId(netXml->getStringAttribute("localListenerId"));
@@ -1423,10 +1600,35 @@ void IrisAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
                              : savedSelected;
 
         localAudioListener.locked = netXml->getBoolAttribute("localLocked", false);
+        if (netXml->hasAttribute("localX"))
+        {
+            localAudioListener.x = static_cast<float>(netXml->getDoubleAttribute("localX", localAudioListener.x));
+            localAudioListener.currentX = localAudioListener.x;
+        }
+        if (netXml->hasAttribute("localY"))
+        {
+            localAudioListener.y = static_cast<float>(netXml->getDoubleAttribute("localY", localAudioListener.y));
+            localAudioListener.currentY = localAudioListener.y;
+        }
 
         oscManager.setListenerState(localAudioListener.id, localAudioListener.name,
                                     localAudioListener.x, localAudioListener.y,
                                     false, localAudioListener.locked, this);
+    }
+
+    // --- Phase 5: Restore per-parameter broadcast flags ---
+    if (auto* bcXml = xmlState->getChildByName("BROADCAST_FLAGS"))
+    {
+        broadcastListener    = bcXml->getBoolAttribute("listener",    broadcastListener);
+        broadcastIRs         = bcXml->getBoolAttribute("irs",         broadcastIRs);
+        broadcastWalls       = bcXml->getBoolAttribute("walls",       broadcastWalls);
+        broadcastInertia     = bcXml->getBoolAttribute("inertia",     broadcastInertia);
+        broadcastFreeze      = bcXml->getBoolAttribute("freeze",      broadcastFreeze);
+        broadcastSpread      = bcXml->getBoolAttribute("spread",      broadcastSpread);
+        broadcastMix         = bcXml->getBoolAttribute("mix",         broadcastMix);
+        broadcastWallOpacity = bcXml->getBoolAttribute("wallOpacity", broadcastWallOpacity);
+        broadcastNormalize   = bcXml->getBoolAttribute("normalize",   broadcastNormalize);
+        broadcastAlign       = bcXml->getBoolAttribute("align",       broadcastAlign);
     }
 
     updateWeightsGaussian();
@@ -1443,6 +1645,79 @@ void IrisAudioProcessor::loadLayoutFromJSON(const juce::File& file)
 
     juce::var json = juce::JSON::parse(file);
     if (!json.isObject()) return;
+
+    // --- Global Parameters from layout JSON ---
+    if (json.hasProperty("spread"))
+    {
+        float val = static_cast<float>(json["spread"]);
+        if (auto* p = parameters.getParameter("spread"))
+            p->setValueNotifyingHost(p->convertTo0to1(val));
+    }
+
+    if (json.hasProperty("normalize"))
+    {
+        bool val = static_cast<bool>(json["normalize"]);
+        if (auto* p = parameters.getParameter("normalize"))
+            p->setValueNotifyingHost(val ? 1.0f : 0.0f);
+    }
+
+    if (json.hasProperty("align"))
+    {
+        bool val = static_cast<bool>(json["align"]);
+        if (auto* p = parameters.getParameter("align"))
+            p->setValueNotifyingHost(val ? 1.0f : 0.0f);
+    }
+
+    if (json.hasProperty("wall_opacity") || json.hasProperty("wallOpacity"))
+    {
+        float val = json.hasProperty("wall_opacity") ? static_cast<float>(json["wall_opacity"])
+                                                     : static_cast<float>(json["wallOpacity"]);
+        if (auto* p = parameters.getParameter("wallOpacity"))
+            p->setValueNotifyingHost(p->convertTo0to1(val));
+    }
+
+    // --- Global Locks Configuration ---
+    bool hasGlobalLock   = false;
+    bool globalLockIRs   = false;
+    bool globalLockWalls = false;
+
+    if (json.hasProperty("locks"))
+    {
+        auto locksVar = json["locks"];
+        if (locksVar.isBool())
+        {
+            hasGlobalLock   = true;
+            globalLockIRs   = static_cast<bool>(locksVar);
+            globalLockWalls = globalLockIRs;
+        }
+        else if (locksVar.isObject())
+        {
+            hasGlobalLock = true;
+            if (locksVar.hasProperty("irs") || locksVar.hasProperty("points"))
+            {
+                globalLockIRs = locksVar.hasProperty("irs") ? static_cast<bool>(locksVar["irs"])
+                                                            : static_cast<bool>(locksVar["points"]);
+            }
+            if (locksVar.hasProperty("walls"))
+            {
+                globalLockWalls = static_cast<bool>(locksVar["walls"]);
+            }
+            if (locksVar.hasProperty("listener"))
+            {
+                localAudioListener.locked = static_cast<bool>(locksVar["listener"]);
+            }
+        }
+    }
+    else if (json.hasProperty("locked"))
+    {
+        auto lockedVar = json["locked"];
+        if (lockedVar.isBool())
+        {
+            hasGlobalLock   = true;
+            globalLockIRs   = static_cast<bool>(lockedVar);
+            globalLockWalls = globalLockIRs;
+        }
+    }
 
     float xmin = 0.0f, xmax = 1.0f, ymin = 0.0f, ymax = 1.0f;
     if (auto extent = json["extent"]; extent.isObject())
@@ -1468,7 +1743,7 @@ void IrisAudioProcessor::loadLayoutFromJSON(const juce::File& file)
         removePoint(id);
 
     // --- Phase 3: Parse IR specs from JSON (no lock needed, just reading JSON) ---
-    struct IRSpec { juce::File irFile; float wx, wy; juce::String name; };
+    struct IRSpec { juce::File irFile; float wx, wy; juce::String name; bool locked; };
     std::vector<IRSpec> irSpecs;
 
     if (auto irs = json["irs"]; irs.isArray())
@@ -1489,6 +1764,14 @@ void IrisAudioProcessor::loadLayoutFromJSON(const juce::File& file)
                 spec.wx     = irObj.getProperty("x",    0.0f);
                 spec.wy     = irObj.getProperty("y",    0.0f);
                 spec.name   = irObj.getProperty("name", "");
+
+                bool irLocked = hasGlobalLock ? globalLockIRs : false;
+                if (irObj.hasProperty("locked"))
+                    irLocked = static_cast<bool>(irObj.getProperty("locked", false));
+                else if (irObj.hasProperty("locks"))
+                    irLocked = static_cast<bool>(irObj.getProperty("locks", false));
+                spec.locked = irLocked;
+
                 irSpecs.push_back(spec);
             }
         }
@@ -1510,6 +1793,7 @@ void IrisAudioProcessor::loadLayoutFromJSON(const juce::File& file)
                 if (p.id == id)
                 {
                     p.x = xn; p.y = yn;
+                    p.locked = spec.locked;
                     if (spec.name.isNotEmpty()) p.name = spec.name;
                     break;
                 }
@@ -1536,7 +1820,14 @@ void IrisAudioProcessor::loadLayoutFromJSON(const juce::File& file)
             w.name        = wObj.getProperty("name", "Wall");
             w.x1          = nx1; w.y1 = ny1;
             w.x2          = nx2; w.y2 = ny2;
-            w.locked      = wObj.getProperty("locked",      false);
+
+            bool wallLocked = hasGlobalLock ? globalLockWalls : false;
+            if (wObj.hasProperty("locked"))
+                wallLocked = static_cast<bool>(wObj.getProperty("locked", false));
+            else if (wObj.hasProperty("locks"))
+                wallLocked = static_cast<bool>(wObj.getProperty("locks", false));
+            w.locked      = wallLocked;
+
             w.attenuation = wObj.getProperty("attenuation", 0.05f);
             w.color       = juce::Colours::cyan;
             walls.push_back(w);
@@ -1557,13 +1848,19 @@ void IrisAudioProcessor::saveLayoutToJSON(const juce::File& file)
     extent->setProperty("ymin", 0.0); extent->setProperty("ymax", 1.0);
     root->setProperty("extent", extent);
 
+    if (spreadParam)      root->setProperty("spread",       spreadParam->load());
+    if (normalizeParam)   root->setProperty("normalize",    normalizeParam->load() > 0.5f);
+    if (alignParam)       root->setProperty("align",        alignParam->load() > 0.5f);
+    if (wallOpacityParam) root->setProperty("wall_opacity", wallOpacityParam->load());
+
     juce::Array<juce::var> irArray;
     for (const auto& p : points)
     {
         juce::DynamicObject* irObj = new juce::DynamicObject();
-        irObj->setProperty("name", p.name);
-        irObj->setProperty("x",    p.x);
-        irObj->setProperty("y",    p.y);
+        irObj->setProperty("name",   p.name);
+        irObj->setProperty("x",      p.x);
+        irObj->setProperty("y",      p.y);
+        irObj->setProperty("locked", p.locked);
 
         juce::String path = p.sourceFile.getFullPathName();
         if (path.startsWith(file.getParentDirectory().getFullPathName()))

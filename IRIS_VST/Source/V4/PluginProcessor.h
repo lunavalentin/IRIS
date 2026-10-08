@@ -265,6 +265,16 @@ private:
     std::shared_ptr<RenderState> renderState;
     std::shared_ptr<RenderState> prevRenderState;   // held on message thread to prevent free() on audio thread
 
+    // Processes one block no larger than preparedBlockSize.
+    void processSubBlock (juce::AudioBuffer<float>& buffer);
+
+    // Block size the audio buffers were allocated for (0 = not prepared yet).
+    std::atomic<int> preparedBlockSize { 0 };
+
+    // True while setStateInformation runs: restoring this instance must not
+    // broadcast its values to (and overwrite) other IRIS instances.
+    std::atomic<bool> isRestoringState { false };
+
     // Audio buffers — pre-allocated in prepareToPlay, never resized on the audio thread.
     juce::AudioBuffer<float> inputBuffer;           // capture of the incoming block
     juce::AudioBuffer<float> mixBuffer;             // per-channel convolution scratch
