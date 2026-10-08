@@ -20,7 +20,6 @@ WallListItem::WallListItem(IrisAudioProcessor& p, juce::Uuid id)
     nameEditor.addListener(this);
     nameEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
     nameEditor.setColour(juce::TextEditor::outlineColourId,    juce::Colours::transparentBlack);
-    nameEditor.setText("Wall");
 
     addAndMakeVisible(lengthEditor);
     lengthEditor.addListener(this);
@@ -31,6 +30,8 @@ WallListItem::WallListItem(IrisAudioProcessor& p, juce::Uuid id)
     angleEditor.addListener(this);
     angleEditor.setJustification(juce::Justification::centred);
     angleEditor.setTooltip("Angle (Deg)");
+
+    updateFromModel();
 }
 
 WallListItem::~WallListItem() {}
@@ -86,10 +87,7 @@ void WallListItem::buttonClicked(juce::Button* b)
     }
     else if (b == &lockButton)
     {
-        juce::ScopedLock sl(processor.stateLock);
-        for (auto& w : processor.walls)
-            if (w.id == wallId) { w.locked = lockButton.getToggleState(); break; }
-        if (processor.onStateChanged) processor.onStateChanged();
+        processor.setWallLocked(wallId, lockButton.getToggleState());
     }
 }
 
@@ -100,45 +98,45 @@ void WallListItem::textEditorReturnKeyPressed(juce::TextEditor& ed)
 
 void WallListItem::textEditorFocusLost(juce::TextEditor& ed)
 {
-    juce::ScopedLock sl(processor.stateLock);
-    for (auto& w : processor.walls)
+    if (&ed == &nameEditor)
     {
-        if (w.id != wallId || w.locked) continue;
-
-        if (&ed == &nameEditor)
-        {
-            w.name = nameEditor.getText();
-        }
-        else
-        {
-            float cx = (w.x1 + w.x2) * 0.5f;
-            float cy = (w.y1 + w.y2) * 0.5f;
-            float dx = w.x2 - w.x1;
-            float dy = w.y2 - w.y1;
-
-            float newLen = std::sqrt(dx*dx + dy*dy);
-            float newAng = std::atan2(dy, dx);
-
-            if (&ed == &lengthEditor)
-                newLen = std::max(0.01f, ed.getText().getFloatValue());
-            else if (&ed == &angleEditor)
-                newAng = juce::degreesToRadians(ed.getText().getFloatValue());
-
-            float hx = 0.5f * newLen * std::cos(newAng);
-            float hy = 0.5f * newLen * std::sin(newAng);
-            w.x1 = cx - hx; w.x2 = cx + hx;
-            w.y1 = cy - hy; w.y2 = cy + hy;
-
-            processor.updateWeightsGaussian();
-        }
-
-        if (processor.onStateChanged) processor.onStateChanged();
-        break;
+        processor.setWallName(wallId, nameEditor.getText().substring(0, 64));
+        return;
     }
+
+    float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    {
+        juce::ScopedLock sl(processor.stateLock);
+        bool found = false;
+        for (const auto& w : processor.walls)
+            if (w.id == wallId && ! w.locked) { x1 = w.x1; y1 = w.y1; x2 = w.x2; y2 = w.y2; found = true; break; }
+        if (! found) return;
+    }
+
+    const float cx = (x1 + x2) * 0.5f;
+    const float cy = (y1 + y2) * 0.5f;
+    float newLen = std::sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+    float newAng = std::atan2(y2 - y1, x2 - x1);
+
+    const float typed = ed.getText().getFloatValue();
+    if (! std::isfinite(typed)) return;
+
+    if (&ed == &lengthEditor)
+        newLen = juce::jlimit(0.01f, 1.5f, typed);
+    else if (&ed == &angleEditor)
+        newAng = juce::degreesToRadians(typed);
+
+    const float hx = 0.5f * newLen * std::cos(newAng);
+    const float hy = 0.5f * newLen * std::sin(newAng);
+
+    // Goes through updateWall: clamped to the room, respects locks, synced over OSC.
+    processor.updateWall(wallId, cx - hx, cy - hy, cx + hx, cy + hy);
+    processor.notifyStructuralChange();
 }
 
 void WallListItem::updateFromModel()
 {
+    juce::ScopedLock sl(processor.stateLock);
     for (const auto& w : processor.walls)
     {
         if (w.id != wallId) continue;

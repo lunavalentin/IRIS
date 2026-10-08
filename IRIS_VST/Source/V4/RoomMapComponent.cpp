@@ -4,7 +4,6 @@
 RoomMapComponent::RoomMapComponent(IrisAudioProcessor& p)
     : audioProcessor(p) {}
 
-RoomMapComponent::~RoomMapComponent() {}
 
 // ---------------------------------------------------------------------------
 // Paint
@@ -179,10 +178,16 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
                                                                 static_cast<int>(oy))) < 12.0f;
     };
 
+    // Listeners are drawn at their smoothed position (inertia), so accept a click
+    // on the dot as drawn as well as on the target position.
+    auto hitListener = [&](const IrisAudioProcessor::NetworkListener& l)
+    {
+        return hitRadius(l.currentX * getWidth(), l.currentY * getHeight())
+            || hitRadius(l.x * getWidth(), l.y * getHeight());
+    };
+
     // Local listener
-    float localPx = audioProcessor.localAudioListener.x * getWidth();
-    float localPy = audioProcessor.localAudioListener.y * getHeight();
-    if (hitRadius(localPx, localPy))
+    if (hitListener(audioProcessor.localAudioListener))
     {
         draggingId             = audioProcessor.localAudioListener.id;
         audioProcessor.selectedListenerId = draggingId;
@@ -192,16 +197,21 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
         dragStartMouseY        = static_cast<float>(e.y) / getHeight();
         dragStartObjX          = audioProcessor.localAudioListener.x;
         dragStartObjY          = audioProcessor.localAudioListener.y;
-        if (audioProcessor.onStateChanged) audioProcessor.onStateChanged();
+
+        // Tell the host a user gesture is in progress (Touch/Latch automation).
+        for (auto* id : { "listenerX", "listenerY" })
+            if (auto* prm = audioProcessor.parameters.getParameter(id))
+                prm->beginChangeGesture();
+        inListenerGesture = true;
+
+        audioProcessor.notifyStructuralChange();
         return;
     }
 
     // Remote listeners
     for (const auto& pair : audioProcessor.remoteListeners)
     {
-        float rPx = pair.second.x * getWidth();
-        float rPy = pair.second.y * getHeight();
-        if (hitRadius(rPx, rPy))
+        if (hitListener(pair.second))
         {
             draggingId             = pair.first;
             audioProcessor.selectedListenerId = draggingId;
@@ -211,7 +221,7 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
             dragStartMouseY        = static_cast<float>(e.y) / getHeight();
             dragStartObjX          = pair.second.x;
             dragStartObjY          = pair.second.y;
-            if (audioProcessor.onStateChanged) audioProcessor.onStateChanged();
+            audioProcessor.notifyStructuralChange();
             return;
         }
     }
@@ -269,7 +279,7 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
                 lastMouseX      = dragStartMouseX;
                 lastMouseY      = dragStartMouseY;
             }
-            if (audioProcessor.onStateChanged) audioProcessor.onStateChanged();
+            audioProcessor.notifyStructuralChange();
             return;
         }
     }
@@ -277,7 +287,7 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
     if (audioProcessor.selectedWallId != juce::Uuid::null())
     {
         audioProcessor.selectedWallId = juce::Uuid::null();
-        if (audioProcessor.onStateChanged) audioProcessor.onStateChanged();
+        audioProcessor.notifyStructuralChange();
     }
 }
 
@@ -296,10 +306,18 @@ void RoomMapComponent::mouseDrag(const juce::MouseEvent& e)
 
         if (dragHandle == 0)
         {
-            w_x1 = juce::jlimit(0.0f, 1.0f, dragStartWall[0] + dx);
-            w_y1 = juce::jlimit(0.0f, 1.0f, dragStartWall[1] + dy);
-            w_x2 = juce::jlimit(0.0f, 1.0f, dragStartWall[2] + dx);
-            w_y2 = juce::jlimit(0.0f, 1.0f, dragStartWall[3] + dy);
+            // Clamp the move, not each end, so the wall keeps its shape at the border.
+            const float minX = std::min(dragStartWall[0], dragStartWall[2]);
+            const float maxX = std::max(dragStartWall[0], dragStartWall[2]);
+            const float minY = std::min(dragStartWall[1], dragStartWall[3]);
+            const float maxY = std::max(dragStartWall[1], dragStartWall[3]);
+            const float cdx  = juce::jlimit(-minX, 1.0f - maxX, dx);
+            const float cdy  = juce::jlimit(-minY, 1.0f - maxY, dy);
+
+            w_x1 = dragStartWall[0] + cdx;
+            w_y1 = dragStartWall[1] + cdy;
+            w_x2 = dragStartWall[2] + cdx;
+            w_y2 = dragStartWall[3] + cdy;
         }
         else if (dragHandle == 1)
         {
@@ -353,6 +371,22 @@ void RoomMapComponent::mouseDrag(const juce::MouseEvent& e)
 void RoomMapComponent::mouseUp(const juce::MouseEvent&)
 {
     draggingId = juce::Uuid::null();
+
+    if (inListenerGesture)
+    {
+        for (auto* id : { "listenerX", "listenerY" })
+            if (auto* prm = audioProcessor.parameters.getParameter(id))
+                prm->endChangeGesture();
+        inListenerGesture = false;
+    }
+}
+
+RoomMapComponent::~RoomMapComponent()
+{
+    if (inListenerGesture)
+        for (auto* id : { "listenerX", "listenerY" })
+            if (auto* prm = audioProcessor.parameters.getParameter(id))
+                prm->endChangeGesture();
 }
 
 // ---------------------------------------------------------------------------

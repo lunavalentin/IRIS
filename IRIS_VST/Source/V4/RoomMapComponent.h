@@ -34,6 +34,8 @@ private:
     float dragStartWall[4]{};
     int   dragHandle      = 0;   // 0 = move, 1 = resize (P1), 2 = rotate (P2)
 
+    bool  inListenerGesture = false;
+
     float lastMouseX = 0.0f;
     float lastMouseY = 0.0f;
 

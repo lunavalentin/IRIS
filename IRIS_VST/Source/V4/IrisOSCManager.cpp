@@ -2,6 +2,32 @@
 #include "PluginProcessor.h"
 
 // ---------------------------------------------------------------------------
+// Input validation helpers
+// ---------------------------------------------------------------------------
+
+static bool isFiniteFloatArg(const juce::OSCArgument& a)
+{
+    return a.isFloat32() && std::isfinite(a.getFloat32());
+}
+
+// Accepts only strings that round-trip as a UUID (rejects garbage and the null id).
+static bool parseUuid(const juce::OSCArgument& a, juce::Uuid& out)
+{
+    if (! a.isString()) return false;
+    const auto s = a.getString().trim();
+    juce::Uuid id(s);
+    if (id.isNull() || ! id.toString().equalsIgnoreCase(s.removeCharacters("-{}"))) return false;
+    out = id;
+    return true;
+}
+
+static bool isUuidString(const juce::String& s)
+{
+    juce::Uuid id(s);
+    return ! id.isNull() && id.toString().equalsIgnoreCase(s.trim().removeCharacters("-{}"));
+}
+
+// ---------------------------------------------------------------------------
 // Singleton
 // ---------------------------------------------------------------------------
 
@@ -39,46 +65,53 @@ IrisOSCManager::~IrisOSCManager()
 
 void IrisOSCManager::addProcessor(IrisAudioProcessor* processor)
 {
-    IrisAudioProcessor* syncSource = nullptr;
     {
         juce::ScopedLock sl(listLock);
         if (processors.contains(processor)) return;
-        if (processors.size() > 0) syncSource = processors[0];
+
+        // Seed the new instance with the listeners every other instance knows about.
+        if (processors.size() > 0)
+        {
+            auto* syncSource = processors[0];
+            juce::ScopedLock slState(processor->stateLock);
+            juce::ScopedLock slSrc(syncSource->stateLock);
+
+            for (const auto& pair : syncSource->remoteListeners)
+                if (pair.first != processor->localAudioListener.id)
+                    processor->remoteListeners[pair.first] = pair.second;
+
+            IrisAudioProcessor::NetworkListener srcRemote;
+            srcRemote.id      = syncSource->localAudioListener.id;
+            srcRemote.name    = syncSource->localAudioListener.name;
+            srcRemote.x       = srcRemote.currentX = syncSource->localAudioListener.x;
+            srcRemote.y       = srcRemote.currentY = syncSource->localAudioListener.y;
+            srcRemote.locked  = syncSource->localAudioListener.locked;
+            srcRemote.isLocal = false;
+            processor->remoteListeners[srcRemote.id] = srcRemote;
+
+            processor->linkMatrix = syncSource->linkMatrix;
+        }
+
         processors.add(processor);
     }
 
-    if (syncSource != nullptr)
+    // Assign the next available single-letter name if this is a fresh instance.
     {
         juce::ScopedLock slState(processor->stateLock);
-        juce::ScopedLock slSrc(syncSource->stateLock);
-
-        for (const auto& pair : syncSource->remoteListeners)
-            if (pair.first != processor->localAudioListener.id)
-                processor->remoteListeners[pair.first] = pair.second;
-
-        IrisAudioProcessor::NetworkListener srcRemote;
-        srcRemote.id      = syncSource->localAudioListener.id;
-        srcRemote.name    = syncSource->localAudioListener.name;
-        srcRemote.x       = syncSource->localAudioListener.x;
-        srcRemote.y       = syncSource->localAudioListener.y;
-        srcRemote.isLocal = false;
-        processor->remoteListeners[srcRemote.id] = srcRemote;
-    }
-
-    // Assign the next available single-letter name if this is a fresh instance.
-    if (processor->localAudioListener.name == "Local Listener")
-    {
-        for (char letter = 'A'; letter <= 'Z'; ++letter)
+        if (processor->localAudioListener.name == "Local Listener")
         {
-            juce::String letterStr = juce::String::charToString(static_cast<juce_wchar>(letter));
-            bool taken = false;
-            for (const auto& pair : processor->remoteListeners)
-                if (pair.second.name == letterStr) { taken = true; break; }
-
-            if (!taken)
+            for (char letter = 'A'; letter <= 'Z'; ++letter)
             {
-                processor->localAudioListener.name = letterStr;
-                break;
+                juce::String letterStr = juce::String::charToString(static_cast<juce_wchar>(letter));
+                bool taken = false;
+                for (const auto& pair : processor->remoteListeners)
+                    if (pair.second.name == letterStr) { taken = true; break; }
+
+                if (!taken)
+                {
+                    processor->localAudioListener.name = letterStr;
+                    break;
+                }
             }
         }
     }
@@ -91,7 +124,7 @@ void IrisOSCManager::addProcessor(IrisAudioProcessor* processor)
                      processor->localAudioListener.locked,
                      processor);
 
-    if (processor->onStateChanged) processor->onStateChanged();
+    processor->notifyStructuralChange();
 }
 
 void IrisOSCManager::removeProcessor(IrisAudioProcessor* processor)
@@ -123,8 +156,54 @@ void IrisOSCManager::sendOSC(const juce::OSCMessage& message)
     oscSender.send(message);
 }
 
+void IrisOSCManager::applyListenerState(IrisAudioProcessor* p, const juce::Uuid& id, const juce::String& name,
+                                         float x, float y, bool locked)
+{
+    {
+        juce::ScopedLock sl(p->stateLock);
+
+        if (id == p->localAudioListener.id)
+        {
+            const bool wasLocked = p->localAudioListener.locked;
+            p->localAudioListener.name   = name;
+            p->localAudioListener.locked = locked;
+
+            // A locked local listener never moves because of a remote message.
+            if (! wasLocked || ! locked)
+            {
+                p->localAudioListener.x = juce::jlimit(0.0f, 1.0f, x);
+                p->localAudioListener.y = juce::jlimit(0.0f, 1.0f, y);
+            }
+        }
+        else if (auto it = p->remoteListeners.find(id); it != p->remoteListeners.end())
+        {
+            it->second.name   = name;
+            it->second.locked = locked;
+            it->second.x      = juce::jlimit(0.0f, 1.0f, x);
+            it->second.y      = juce::jlimit(0.0f, 1.0f, y);
+        }
+        else
+        {
+            if (p->remoteListeners.size() >= IrisAudioProcessor::kMaxRemoteListeners)
+                return;
+
+            IrisAudioProcessor::NetworkListener remote;
+            remote.id      = id;
+            remote.name    = name;
+            remote.x       = remote.currentX = juce::jlimit(0.0f, 1.0f, x);
+            remote.y       = remote.currentY = juce::jlimit(0.0f, 1.0f, y);
+            remote.isLocal = false;
+            remote.locked  = locked;
+            p->remoteListeners[id] = remote;
+        }
+    }
+
+    p->notifyStructuralChange();
+}
+
 // ---------------------------------------------------------------------------
-// Incoming OSC dispatch
+// Incoming OSC dispatch (message thread). Every value is validated: wrong types,
+// NaN/Inf and malformed ids are dropped instead of reaching the audio path.
 // ---------------------------------------------------------------------------
 
 void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
@@ -132,46 +211,21 @@ void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
     const auto addr = message.getAddressPattern();
 
     if (addr == "/iris/listener/sync" && message.size() >= 6
-        && message[0].isString() && message[1].isString()
-        && message[2].isFloat32() && message[3].isFloat32()
-        && message[4].isInt32()   && message[5].isInt32())
+        && message[1].isString()
+        && isFiniteFloatArg(message[2]) && isFiniteFloatArg(message[3])
+        && message[4].isInt32() && message[5].isInt32())
     {
-        juce::Uuid   id     (message[0].getString());
-        juce::String name  = message[1].getString();
-        float        x     = message[2].getFloat32();
-        float        y     = message[3].getFloat32();
-        bool         locked = message[5].getInt32() != 0;
+        juce::Uuid id;
+        if (! parseUuid(message[0], id)) return;
+
+        const juce::String name   = message[1].getString().substring(0, 64);
+        const float        x      = message[2].getFloat32();
+        const float        y      = message[3].getFloat32();
+        const bool         locked = message[5].getInt32() != 0;
 
         notifyProcessors([id, name, x, y, locked](IrisAudioProcessor* p)
         {
-            juce::ScopedLock sl(p->stateLock);
-            if (id != p->localAudioListener.id)
-            {
-                if (p->remoteListeners.find(id) == p->remoteListeners.end())
-                {
-                    IrisAudioProcessor::NetworkListener remote;
-                    remote.id     = id;
-                    remote.name   = name;
-                    remote.x      = juce::jlimit(0.0f, 1.0f, x);
-                    remote.y      = juce::jlimit(0.0f, 1.0f, y);
-                    remote.isLocal = false;
-                    remote.locked = locked;
-                    p->remoteListeners[id] = remote;
-                }
-                else
-                {
-                    p->remoteListeners[id].name   = name;
-                    p->remoteListeners[id].locked = locked;
-                    p->updateListenerPosition(id, x, y, false);
-                }
-            }
-            else
-            {
-                p->localAudioListener.name   = name;
-                p->localAudioListener.locked = locked;
-                p->updateListenerPosition(id, x, y, false);
-            }
-            if (p->onStateChanged) p->onStateChanged();
+            applyListenerState(p, id, name, x, y, locked);
         });
     }
     else if (addr == "/iris/listener/matrix" && message.size() == 2
@@ -189,8 +243,11 @@ void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
             {
                 juce::StringArray parts;
                 parts.addTokens(pStr, ":", "");
-                if (parts.size() == 2)
+                if (parts.size() == 2 && parts[0] != parts[1]
+                    && isUuidString(parts[0]) && isUuidString(parts[1]))
                     newEdges.push_back({ parts[0], parts[1] });
+
+                if (newEdges.size() > 4096) return;
             }
         }
 
@@ -202,97 +259,74 @@ void IrisOSCManager::oscMessageReceived(const juce::OSCMessage& message)
                     p->setLinkMatrixConnections(newEdges);
         });
     }
-    else if (addr == "/iris/listener/remove" && message.size() == 1 && message[0].isString())
+    else if (addr == "/iris/listener/remove" && message.size() == 1)
     {
-        removeGhostId(juce::Uuid(message[0].getString()));
+        juce::Uuid id;
+        if (parseUuid(message[0], id))
+            removeGhostId(id);
     }
-    else if (addr == "/iris/param/mix" && message.size() == 1 && message[0].isFloat32())
+    else if (addr.toString().startsWith("/iris/param/") && message.size() == 1 && isFiniteFloatArg(message[0]))
     {
-        float val = message[0].getFloat32();
-        notifyProcessors([val](IrisAudioProcessor* p)
+        const auto  paramId = addr.toString().fromFirstOccurrenceOf("/iris/param/", false, false);
+        const float val     = message[0].getFloat32();
+
+        // Only the parameters that are broadcast between instances can be set over OSC,
+        // and each instance only accepts the ones it has enabled in the broadcast menu.
+        notifyProcessors([paramId, val](IrisAudioProcessor* p)
         {
-            p->updateParameterNotifiers("mix", val);
+            bool accept = false;
+            if      (paramId == "mix")         accept = p->broadcastMix;
+            else if (paramId == "spread")      accept = p->broadcastSpread;
+            else if (paramId == "inertia")     accept = p->broadcastInertia;
+            else if (paramId == "freeze")      accept = p->broadcastFreeze;
+            else if (paramId == "wallOpacity") accept = p->broadcastWallOpacity;
+            else if (paramId == "normalize")   accept = p->broadcastNormalize;
+            else if (paramId == "align")       accept = p->broadcastAlign;
+
+            if (accept)
+                p->updateParameterNotifiers(paramId, val);
         });
     }
-    else if (addr == "/iris/param/spread" && message.size() == 1 && message[0].isFloat32())
+    else if (addr == "/iris/ir/name" && message.size() == 2 && message[1].isString())
     {
-        float val = message[0].getFloat32();
-        notifyProcessors([val](IrisAudioProcessor* p)
-        {
-            p->updateParameterNotifiers("spread", val);
-        });
+        juce::Uuid id;
+        if (! parseUuid(message[0], id)) return;
+        juce::String name = message[1].getString().substring(0, 128);
+        notifyProcessors([id, name](IrisAudioProcessor* p) { if (p->broadcastIRs) p->setPointName(id, name, false); });
     }
-    else if (addr == "/iris/param/inertia" && message.size() == 1 && message[0].isFloat32())
+    else if (addr == "/iris/ir/pos" && message.size() == 3
+             && isFiniteFloatArg(message[1]) && isFiniteFloatArg(message[2]))
     {
-        float val = message[0].getFloat32();
-        notifyProcessors([val](IrisAudioProcessor* p)
-        {
-            p->updateParameterNotifiers("inertia", val);
-        });
+        juce::Uuid id;
+        if (! parseUuid(message[0], id)) return;
+        const float x = message[1].getFloat32(), y = message[2].getFloat32();
+        notifyProcessors([id, x, y](IrisAudioProcessor* p) { if (p->broadcastIRs) p->updatePointPosition(id, x, y, false); });
     }
-    else if (addr == "/iris/param/freeze" && message.size() == 1 && message[0].isFloat32())
+    else if (addr == "/iris/wall/pos" && message.size() == 5
+             && isFiniteFloatArg(message[1]) && isFiniteFloatArg(message[2])
+             && isFiniteFloatArg(message[3]) && isFiniteFloatArg(message[4]))
     {
-        float val = message[0].getFloat32();
-        notifyProcessors([val](IrisAudioProcessor* p)
-        {
-            p->updateParameterNotifiers("freeze", val);
-        });
-    }
-    else if (addr == "/iris/param/wallOpacity" && message.size() == 1 && message[0].isFloat32())
-    {
-        float val = message[0].getFloat32();
-        notifyProcessors([val](IrisAudioProcessor* p)
-        {
-            p->updateParameterNotifiers("wallOpacity", val);
-        });
-    }
-    else if (addr == "/iris/ir/name" && message.size() == 2
-             && message[0].isString() && message[1].isString())
-    {
-        juce::Uuid   id  (message[0].getString());
-        juce::String name = message[1].getString();
-        notifyProcessors([id, name](IrisAudioProcessor* p) { p->setPointName(id, name, false); });
+        juce::Uuid id;
+        if (! parseUuid(message[0], id)) return;
+        const float x1 = message[1].getFloat32(), y1 = message[2].getFloat32();
+        const float x2 = message[3].getFloat32(), y2 = message[4].getFloat32();
+        notifyProcessors([id, x1, y1, x2, y2](IrisAudioProcessor* p) { if (p->broadcastWalls) p->updateWall(id, x1, y1, x2, y2, false); });
     }
 }
 
 // ---------------------------------------------------------------------------
-// Outbound sync
+// Outbound sync. Callers must not hold any processor's stateLock.
 // ---------------------------------------------------------------------------
 
 void IrisOSCManager::setListenerState(const juce::Uuid& id, const juce::String& name,
                                        float x, float y, bool linked, bool locked,
                                        IrisAudioProcessor* source)
 {
+    if (! std::isfinite(x) || ! std::isfinite(y)) return;
+
     notifyProcessors([id, name, x, y, locked](IrisAudioProcessor* p)
     {
-        juce::ScopedLock sl(p->stateLock);
-        if (id != p->localAudioListener.id)
-        {
-            if (p->remoteListeners.find(id) == p->remoteListeners.end())
-            {
-                IrisAudioProcessor::NetworkListener remote;
-                remote.id      = id;
-                remote.name    = name;
-                remote.x       = juce::jlimit(0.0f, 1.0f, x);
-                remote.y       = juce::jlimit(0.0f, 1.0f, y);
-                remote.isLocal = false;
-                remote.locked  = locked;
-                p->remoteListeners[id] = remote;
-            }
-            else
-            {
-                p->remoteListeners[id].name   = name;
-                p->remoteListeners[id].locked = locked;
-                p->updateListenerPosition(id, x, y, false);
-            }
-        }
-        else
-        {
-            p->localAudioListener.name   = name;
-            p->localAudioListener.locked = locked;
-            p->updateListenerPosition(id, x, y, false);
-        }
-        if (p->onStateChanged) p->onStateChanged();
+        applyListenerState(p, id, name, x, y, locked);
     }, source);
 
     juce::OSCMessage m("/iris/listener/sync");
@@ -305,22 +339,26 @@ void IrisOSCManager::setListenerState(const juce::Uuid& id, const juce::String& 
     sendOSC(m);
 }
 
-void IrisOSCManager::syncLinkMatrix(IrisAudioProcessor* caller)
+void IrisOSCManager::syncLinkMatrix(IrisAudioProcessor* caller,
+                                     const std::vector<std::pair<juce::String, juce::String>>& edges)
 {
-    if (!isConnected) return;
+    // Instances in this process share the same graph.
+    notifyProcessors([&edges](IrisAudioProcessor* p) { p->setLinkMatrixConnections(edges); }, caller);
 
-    juce::StringArray edges;
-    for (const auto& edge : caller->linkMatrix)
-        edges.add(edge.first + ":" + edge.second);
+    juce::StringArray edgeStrings;
+    for (const auto& edge : edges)
+        edgeStrings.add(edge.first + ":" + edge.second);
 
     juce::OSCMessage m("/iris/listener/matrix",
                        caller->localAudioListener.id.toString(),
-                       edges.joinIntoString(","));
+                       edgeStrings.joinIntoString(","));
     sendOSC(m);
 }
 
 void IrisOSCManager::setGlobalParam(const juce::String& paramId, float value, IrisAudioProcessor* source)
 {
+    if (! std::isfinite(value)) return;
+
     notifyProcessors([paramId, value](IrisAudioProcessor* p)
     {
         // Go through the parameter object only (not the raw atomic), so the APVTS
@@ -336,7 +374,7 @@ void IrisOSCManager::setGlobalParam(const juce::String& paramId, float value, Ir
 void IrisOSCManager::syncAddIR(const juce::Uuid& id, const juce::String& name,
                                 const juce::File& file, IrisAudioProcessor* source)
 {
-    notifyProcessors([id, file](IrisAudioProcessor* p) { p->addIRFromFileWithID(file, id); }, source);
+    notifyProcessors([id, file, name](IrisAudioProcessor* p) { p->addIRFromFileWithID(file, id, name); }, source);
 
     juce::OSCMessage m("/iris/ir/add");
     m.addString(id.toString());
@@ -423,15 +461,23 @@ void IrisOSCManager::requestFullSync(IrisAudioProcessor* requester)
 {
     if (requester == nullptr) return;
 
-    setListenerState(requester->localAudioListener.id,
-                     requester->localAudioListener.name,
-                     requester->localAudioListener.x,
-                     requester->localAudioListener.y,
-                     false,
-                     requester->localAudioListener.locked,
-                     requester);
+    // Snapshot under the requester's lock, then send without holding it.
+    IrisAudioProcessor::NetworkListener local;
+    std::vector<OcclusionWall> walls;
+    std::vector<std::pair<juce::String, juce::String>> edges;
+    struct IRSnap { juce::Uuid id; juce::String name; juce::File file; float x, y; bool locked; };
+    std::vector<IRSnap> irs;
+    {
+        juce::ScopedLock sl(requester->stateLock);
+        local = requester->localAudioListener;
+        walls = requester->walls;
+        edges.assign(requester->linkMatrix.begin(), requester->linkMatrix.end());
+        for (const auto& p : requester->points)
+            irs.push_back({ p.id, p.name, p.sourceFile, p.x, p.y, p.locked });
+    }
 
-    syncLinkMatrix(requester);
+    setListenerState(local.id, local.name, local.x, local.y, false, local.locked, requester);
+    syncLinkMatrix(requester, edges);
 
     if (requester->mixParam)         setGlobalParam("mix",         requester->mixParam->load(),         requester);
     if (requester->spreadParam)      setGlobalParam("spread",      requester->spreadParam->load(),      requester);
@@ -439,13 +485,12 @@ void IrisOSCManager::requestFullSync(IrisAudioProcessor* requester)
     if (requester->freezeParam)      setGlobalParam("freeze",      requester->freezeParam->load(),      requester);
     if (requester->wallOpacityParam) setGlobalParam("wallOpacity", requester->wallOpacityParam->load(), requester);
 
-    juce::ScopedLock sl(requester->stateLock);
-    for (const auto& w : requester->walls)
+    for (const auto& w : walls)
         syncAddWall(w.id, w.x1, w.y1, w.x2, w.y2, requester);
 
-    for (const auto& p : requester->points)
+    for (const auto& p : irs)
     {
-        syncAddIR(p.id, p.name, p.sourceFile, requester);
+        syncAddIR(p.id, p.name, p.file, requester);
         syncIRPosition(p.id, p.x, p.y, requester);
         syncLocked(p.id, p.locked, requester);
         syncIRName(p.id, p.name, requester);
@@ -457,13 +502,13 @@ void IrisOSCManager::removeGhostId(const juce::Uuid& ghostId)
     juce::ScopedLock sl(listLock);
     for (auto* p : processors)
     {
-        if (p != nullptr)
+        if (p == nullptr) continue;
         {
             juce::ScopedLock slState(p->stateLock);
             p->remoteListeners.erase(ghostId);
             if (p->selectedListenerId == ghostId)
                 p->selectedListenerId = p->localAudioListener.id;
-            if (p->onStateChanged) p->onStateChanged();
         }
+        p->notifyStructuralChange();
     }
 }

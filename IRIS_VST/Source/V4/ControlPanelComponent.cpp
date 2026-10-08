@@ -157,7 +157,7 @@ void ControlPanelComponent::buttonClicked(juce::Button* b)
         fileChooser = std::make_unique<juce::FileChooser>(
             "Select IR File",
             juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-            "*.wav;*.WAV;*.aiff;*.mp3");
+            "*.wav;*.WAV;*.aif;*.aiff;*.flac");
 
         auto flags = juce::FileBrowserComponent::openMode
                    | juce::FileBrowserComponent::canSelectFiles
@@ -199,6 +199,7 @@ void ControlPanelComponent::buttonClicked(juce::Button* b)
         fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc)
         {
             auto f = fc.getResult();
+            if (f == juce::File()) return;   // dialog cancelled
             if (!f.hasFileExtension("json")) f = f.withFileExtension("json");
             audioProcessor.saveLayoutToJSON(f);
         });

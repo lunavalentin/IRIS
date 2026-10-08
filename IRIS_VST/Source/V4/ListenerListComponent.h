@@ -26,6 +26,8 @@ public:
     juce::Uuid listenerId;
     bool isLocalList;
 
+    std::function<void(juce::Component&)> onOpenLinkMatrix;
+
 private:
     IrisAudioProcessor& processor;
     
@@ -47,8 +49,12 @@ public:
     void resized() override;
     void timerCallback() override;
 
+    // Called when the editor goes away: the box may outlive it for a moment.
+    void detach() { stopTimer(); processor = nullptr; }
+
 private:
-    IrisAudioProcessor& processor;
+    IrisAudioProcessor* processor;
+    juce::String nameFor(const juce::Uuid& id) const;
     
     struct Cell {
         juce::Uuid rId;
@@ -76,12 +82,19 @@ public:
     void resized() override;
     void timerCallback() override;
 
+    // Rebuild if the set of listeners changed, otherwise refresh the rows.
+    void refresh();
+
 private:
     IrisAudioProcessor& processor;
     
     juce::Viewport viewport;
     juce::Component contentContainer;
     std::vector<std::unique_ptr<ListenerListItem>> items;
+
+    juce::Component::SafePointer<juce::CallOutBox>          matrixBox;
+    juce::Component::SafePointer<ListenerLinkMatrixComponent> matrixContent;
+    void openLinkMatrix(juce::Component& anchor);
     
     void updateContent();
 };

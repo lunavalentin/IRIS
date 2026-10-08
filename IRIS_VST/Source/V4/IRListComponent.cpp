@@ -95,10 +95,11 @@ void IRListItem::updateFromModel()
 
         juce::String displayName = p.name;
         if (isIncompatible)
-            displayName += "  \u26a0 " + juce::String(p.sourceChannels)
+            displayName += juce::String::fromUTF8("  \u26a0 ") + juce::String(p.sourceChannels)
                          + "ch IR / " + juce::String(numOut) + "ch out";
 
-        nameLabel.setText(displayName, juce::dontSendNotification);
+        if (! nameLabel.isBeingEdited())
+            nameLabel.setText(displayName, juce::dontSendNotification);
         nameLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
         nameLabel.setColour(juce::Label::textColourId,
                             isIncompatible ? juce::Colours::orange
@@ -139,9 +140,10 @@ void IRListItem::textEditorFocusLost(juce::TextEditor& ed)
     float val = juce::jlimit(0.0f, 1.0f, ed.getText().getFloatValue());
 
     float cx = 0.5f, cy = 0.5f;
-    for (auto& p : processor.points)
     {
-        if (p.id == pointId) { cx = p.x; cy = p.y; break; }
+        juce::ScopedLock sl(processor.stateLock);
+        for (auto& p : processor.points)
+            if (p.id == pointId) { cx = p.x; cy = p.y; break; }
     }
 
     if (&ed == &xEditor) cx = val;
@@ -152,8 +154,12 @@ void IRListItem::textEditorFocusLost(juce::TextEditor& ed)
 
 void IRListItem::labelTextChanged(juce::Label* labelThatHasChanged)
 {
-    if (labelThatHasChanged == &nameLabel)
-        processor.setPointName(pointId, nameLabel.getText(), true);
+    if (labelThatHasChanged != &nameLabel) return;
+
+    // The row shows a channel-mismatch warning after the name; never save it as part of the name.
+    auto newName = nameLabel.getText().upToFirstOccurrenceOf(juce::String::fromUTF8("  \u26a0"), false, false).trim();
+    if (newName.isNotEmpty())
+        processor.setPointName(pointId, newName, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,9 +179,16 @@ IRListComponent::IRListComponent(IrisAudioProcessor& p)
     titleLabel.setColour(juce::Label::textColourId, Theme::textSecondary);
 
     updateContent();
+    startTimerHz(10);
 }
 
 IRListComponent::~IRListComponent() {}
+
+void IRListComponent::timerCallback()
+{
+    for (auto& item : items)
+        item->updateFromModel();
+}
 
 void IRListComponent::resized()
 {
