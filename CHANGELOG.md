@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-10-08 — V4.5.0: MIDI learn (modelled on Aura)
+
+### What Aura does (read from `~/Documents/AURA/midi_mappings.json` and strings in Aura.app; its source isn't on this Mac)
+- A `MidiLearnManager` with a per-control right-click menu: "MIDI Learn", "MIDI Learn (cancels current learn)", "Cancel MIDI Learn", "Clear MIDI Mapping".
+- For on/off controls, the modes "Toggle on each press (momentary pad)" and "Absolute (latching controller: >=64 on)".
+- A "LEARNING..." overlay, "MIDI learn timed out", and mappings of the form `{ name: { cc, ch, mode } }`.
+- Aura opens MIDI devices itself.
+
+### Added
+- `IrisMidiLearn.h/.cpp` (new): the learn manager, owned by the processor.
+  - **Sources:** MIDI devices opened directly (default "All MIDI inputs", rescanned every 2 s for hot-plug) and host MIDI from `processBlock` (VST3, via JUCE's MIDI-CC emulation).
+  - **Threading:** the device callback and the audio thread only push into lock-free FIFOs. Learning, mapping and parameter writes run on the message thread from the 60 Hz timer.
+  - **Behaviour:** one controller drives one parameter; channel-specific or "any channel"; continuous (CC/127 over the full parameter range), toggle (rising edge through 64) and absolute (≥ 64) modes; the learning move doesn't change the value; 10 s timeout.
+  - **Automation:** begin/end change gestures around controller moves (closed after 300 ms idle), so DAWs record one automation pass.
+  - **De-duplication:** the same value from host and device within 30 ms is applied once.
+- `MidiLearnControls.h` (new): `MidiLearnable<Slider|ToggleButton>` (right-click opens the menu instead of moving or toggling the control), the Aura-worded menu, and the pulsing "LEARNING..." frame and "CCn" badges.
+- Control panel: every slider and toggle is learnable; new **MIDI** button (input selection, host MIDI on/off, mapping list, clear all); status line in the panel header.
+- Room map: right-click the listener dot → MIDI learn for Listener X / Y, with state shown next to the dot.
+- Mappings, input selection and the host-MIDI flag are saved in the session (`MIDI_MAPPINGS`).
+- CMake: `NEEDS_MIDI_INPUT TRUE`, `AU_MAIN_TYPE kAudioUnitType_Effect` (the AU stays `aufx Irs4 IRIS`, so existing AU sessions still find it), links `juce_audio_devices`. Version 4.5.0.
+
+### Decisions
+- Direct device input in addition to host MIDI, because hosts such as Aura may not route MIDI to plugins, and an AU effect can't receive host MIDI unless it becomes `aumf`, which would break existing sessions.
+- Mappings are per instance (in the session), not a global file like Aura's `midi_mappings.json`.
+
+### Tests
+- `IrisHarness midi` (ASan): learn from host CC30 ch 1 (spread unchanged 0.30 during the learn move); CC 127 → 1.00, 0 → 0.00; ch 2 ignored, then accepted with "any channel"; Output Gain CC 0/127 → −60.0 / +12.0 dB; Freeze defaults to toggle (press/release/press → 1/1/0); absolute 127/0 → 1/0; re-learning CC30 on Mix removes it from Spread; Listener X CC 127 → 1.00; 4 mappings survive a session round trip; clear all → 0.
+  - **Device path:** a virtual CoreMIDI source ("IRIS harness controller") was opened automatically, CC50 ch 3 was learned for Wall Opacity, and CC50 = 0 → 0.00.
+  - No ASan errors.
+- `IrisHarness vst3midi`: the real installed VST3 in a JUCE host, mapping injected through the session, CC30 from the host's MIDI input → Spread 1.00 / 0.00 / 0.50 as seen by the host.
+- Regression unchanged: `h1`, `c3`, `m5`, `state`, `multi`, `migr`, `n1` (no deadlock, 82M calls), ASan `editor`, `fosc`, `fstate`.
+- `auval`: AU VALIDATION SUCCEEDED. One expected warning: "implements MusicDeviceMIDIEvent but is of type 'aufx'".
+- `vst3`: loads as 4.5.0. 2094 parameters (14 + JUCE's 2080 hidden MIDI-CC parameters, which aren't automatable), state round trip, editor, clean unload. `oversize`: unchanged.
+- Installed to `~/Library/Audio/Plug-Ins`.
+
+### Open issues
+- Not tested with a physical controller or inside Aura/a DAW: TESTING.md §5b.
+- Text boxes on sliders don't open the MIDI menu (right-click the slider track).
+
+
 ## 2026-10-08 — V4.4.1: Aura crash (host sends larger blocks than announced)
 
 ### Crash report analysed

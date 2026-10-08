@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "IrisMidiLearn.h"
 
 class IrisOSCManager;
 
@@ -137,6 +138,9 @@ public:
     // Parameters
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     juce::AudioProcessorValueTreeState parameters;
+
+    // MIDI learn: right-click a control, move a controller. Saved with the session.
+    IrisMidiLearn midiLearn { parameters };
 
     // IR and Wall state (guarded by stateLock)
     std::vector<IRPoint>      points;

@@ -145,6 +145,13 @@ void IrisAudioProcessorEditor::timerCallback()
     if (audioProcessor.structuralChangePending.exchange(false))
         updateUI();
 
+    // MIDI learn: refresh the highlights and status; keep pulsing while learning.
+    if (audioProcessor.midiLearn.uiDirty.exchange(false) || audioProcessor.midiLearn.getLearningParam().isNotEmpty())
+    {
+        controlPanel.repaint();
+        roomMap.repaint();
+    }
+
     if (audioProcessor.pendingUIRepaint.exchange(false))
     {
         roomMap.repaint();

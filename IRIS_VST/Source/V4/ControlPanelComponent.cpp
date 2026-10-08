@@ -81,9 +81,80 @@ ControlPanelComponent::ControlPanelComponent(IrisAudioProcessor& p)
     outputGainSlider.setTextValueSuffix(" dB");
     outputGainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.parameters, "outputGain", outputGainSlider);
+
+    addAndMakeVisible(midiButton);
+    midiButton.setTooltip("MIDI input and MIDI learn mappings. Right-click any slider or toggle to MIDI-learn it.");
+    midiButton.addListener(this);
+
+    makeLearnable(mixSlider,         "mix");
+    makeLearnable(wallOpacitySlider, "wallOpacity");
+    makeLearnable(outputGainSlider,  "outputGain");
+    makeLearnable(inertiaSlider,     "inertia");
+    makeLearnable(spreadSlider,      "spread");
+    makeLearnable(freezeButton,      "freeze");
+    makeLearnable(normalizeButton,   "normalize");
+    makeLearnable(alignButton,       "align");
 }
 
 ControlPanelComponent::~ControlPanelComponent() {}
+
+template <class Control>
+void ControlPanelComponent::makeLearnable(Control& c, const juce::String& paramId)
+{
+    c.paramId = paramId;
+    c.onMidiMenu = [this, &c, paramId] { MidiLearnUI::showMenu(audioProcessor, paramId, c); };
+    learnables.push_back({ &c, paramId });
+}
+
+void ControlPanelComponent::paintOverChildren(juce::Graphics& g)
+{
+    for (auto& [comp, paramId] : learnables)
+        MidiLearnUI::paintState(g, audioProcessor, paramId, comp->getBounds());
+
+    const auto status = audioProcessor.midiLearn.getStatus();
+    if (status.isNotEmpty())
+    {
+        g.setFont(Theme::getBaseFont(10.0f));
+        g.setColour(audioProcessor.midiLearn.getLearningParam().isNotEmpty() ? juce::Colours::orange
+                                                                               : Theme::textSecondary);
+        g.drawText(status, getWidth() / 3, 4, getWidth() * 2 / 3 - 10, 14, juce::Justification::right, true);
+    }
+}
+
+void ControlPanelComponent::showMidiSetupMenu()
+{
+    auto& ml = audioProcessor.midiLearn;
+    juce::PopupMenu m;
+
+    m.addSectionHeader("MIDI input");
+    const auto selection = ml.getDeviceSelection();
+    m.addItem("All MIDI inputs", true, selection == "*", [&ml] { ml.setDeviceSelection("*"); });
+    for (const auto& d : juce::MidiInput::getAvailableDevices())
+        m.addItem(d.name, true, selection == d.identifier, [&ml, id = d.identifier] { ml.setDeviceSelection(id); });
+    m.addItem("No MIDI devices", true, selection.isEmpty(), [&ml] { ml.setDeviceSelection({}); });
+    m.addSeparator();
+    m.addItem("Also use MIDI sent by the host", true, ml.isHostMidiEnabled(),
+              [&ml] { ml.setHostMidiEnabled(! ml.isHostMidiEnabled()); });
+
+    m.addSectionHeader("Mappings (right-click a control to learn)");
+    const auto mappings = ml.getAllMappings();
+    if (mappings.empty())
+        m.addItem("No mappings yet", false, false, nullptr);
+
+    for (const auto& [id, mapping] : mappings)
+    {
+        auto* param = audioProcessor.parameters.getParameter(id);
+        m.addSubMenu((param != nullptr ? param->getName(32) : id) + "   " + IrisMidiLearn::describe(mapping),
+                     MidiLearnUI::buildMenu(audioProcessor, id));
+    }
+
+    m.addSeparator();
+    if (ml.getLearningParam().isNotEmpty())
+        m.addItem("Cancel MIDI Learn", [&ml] { ml.cancelLearning(); });
+    m.addItem("Clear all MIDI mappings", ! mappings.empty(), false, [&ml] { ml.clearAll(); });
+
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(midiButton));
+}
 
 void ControlPanelComponent::paint(juce::Graphics& g)
 {
@@ -113,6 +184,7 @@ void ControlPanelComponent::resized()
     addIRButton.setBounds(row1.removeFromLeft(70));
     loadLayoutButton.setBounds(row1.removeFromRight(70));
     broadcastButton.setBounds(row1.removeFromRight(80));
+    midiButton.setBounds(row1.removeFromRight(46).reduced(2, 0));
     auto mixArea = row1.reduced(10, 0);
     mixLabel.setBounds(mixArea.removeFromLeft(30));
     mixSlider.setBounds(mixArea);
@@ -203,6 +275,10 @@ void ControlPanelComponent::buttonClicked(juce::Button* b)
             if (!f.hasFileExtension("json")) f = f.withFileExtension("json");
             audioProcessor.saveLayoutToJSON(f);
         });
+    }
+    else if (b == &midiButton)
+    {
+        showMidiSetupMenu();
     }
     else if (b == &broadcastButton)
     {

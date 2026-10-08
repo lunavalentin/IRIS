@@ -1,4 +1,5 @@
 #include "RoomMapComponent.h"
+#include "MidiLearnControls.h"
 #include "Theme.h"
 
 RoomMapComponent::RoomMapComponent(IrisAudioProcessor& p)
@@ -118,6 +119,28 @@ void RoomMapComponent::paint (juce::Graphics& g)
         g.setColour(Theme::listenerLocalRed);
         g.fillEllipse(px - radius, py - radius, radius * 2, radius * 2);
 
+        // MIDI learn state for Listener X / Y, drawn beside the dot.
+        {
+            auto& ml = audioProcessor.midiLearn;
+            juce::String tag;
+            const auto learning = ml.getLearningParam();
+            if (learning == "listenerX" || learning == "listenerY")
+                tag = (learning == "listenerX" ? "X " : "Y ") + juce::String("LEARNING...");
+            else
+            {
+                if (auto mx = ml.getMapping("listenerX")) tag << "X:CC" << mx->cc << " ";
+                if (auto my = ml.getMapping("listenerY")) tag << "Y:CC" << my->cc;
+            }
+
+            if (tag.isNotEmpty())
+            {
+                g.setFont(Theme::getBaseFont(9.0f));
+                g.setColour(learning.startsWith("listener") ? juce::Colours::orange : Theme::accentCyan);
+                g.drawText(tag.trim(), static_cast<int>(px + radius + 4), static_cast<int>(py + radius),
+                           110, 12, juce::Justification::left);
+            }
+        }
+
         g.setColour(Theme::textPrimary);
         g.setFont(Theme::getBaseFont(10.0f));
         g.drawText(local.name, px - radius, py - radius, radius * 2, radius * 2, juce::Justification::centred);
@@ -185,6 +208,20 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
         return hitRadius(l.currentX * getWidth(), l.currentY * getHeight())
             || hitRadius(l.x * getWidth(), l.y * getHeight());
     };
+
+    // Right-click on the local listener: MIDI learn for Listener X / Y.
+    if (e.mods.isPopupMenu())
+    {
+        if (hitListener(audioProcessor.localAudioListener))
+        {
+            juce::PopupMenu m;
+            m.addSubMenu("Listener X", MidiLearnUI::buildMenu(audioProcessor, "listenerX"));
+            m.addSubMenu("Listener Y", MidiLearnUI::buildMenu(audioProcessor, "listenerY"));
+            m.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(
+                juce::Rectangle<int>(e.getScreenX(), e.getScreenY(), 1, 1)));
+        }
+        return;
+    }
 
     // Local listener
     if (hitListener(audioProcessor.localAudioListener))

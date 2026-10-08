@@ -424,9 +424,16 @@ void IrisAudioProcessor::audioWorkgroupContextChanged (const juce::AudioWorkgrou
 // Process block
 // ---------------------------------------------------------------------------
 
-void IrisAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void IrisAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // Host MIDI (VST3) for MIDI learn: only queued here, applied on the message thread.
+    if (! midi.isEmpty())
+    {
+        midiLearn.handleHostMidi(midi);
+        midi.clear();
+    }
 
     const int maxBlock   = preparedBlockSize.load();
     const int numSamples = buffer.getNumSamples();
@@ -456,8 +463,15 @@ void IrisAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     }
 }
 
-void IrisAudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void IrisAudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
+    // MIDI learn keeps working while bypassed (e.g. a pad mapped to un-bypass controls).
+    if (! midi.isEmpty())
+    {
+        midiLearn.handleHostMidi(midi);
+        midi.clear();
+    }
+
     // The default implementation clears outputs above the input count, which
     // silences the right channel in the mono -> stereo layout. Pass the dry
     // signal to every output instead, as processing does.
@@ -1720,6 +1734,9 @@ bool IrisAudioProcessor::rebuildRenderState (bool snapWeights)
 
 void IrisAudioProcessor::timerCallback()
 {
+    // --- 0. MIDI controllers and MIDI learn ---
+    midiLearn.processPending();
+
     // --- 1. Work requested by parameterChanged() (no locks held here) ---
     if (reprocessPending.exchange(false))
         reprocessIRPoints();
@@ -1900,6 +1917,8 @@ void IrisAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     bcXml->setAttribute("normalize",   broadcastNormalize);
     bcXml->setAttribute("align",       broadcastAlign);
 
+    xml.addChildElement(midiLearn.toXml().release());
+
     copyXmlToBinary(xml, destData);
 }
 
@@ -1959,6 +1978,9 @@ void IrisAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
     // (Sessions from before Output Gain existed keep the new 0 dB default.)
     if (version < 2 && savedOutputGain)
         restoreParam("outputGain", juce::jlimit(-60.0, 12.0, static_cast<double>(outputGainParam->load()) + 30.0));
+
+    if (auto* midiXml = xmlState->getChildByName("MIDI_MAPPINGS"))
+        midiLearn.fromXml(*midiXml);
 
     // --- Phase 2: Load IR files (heavy, outside the lock) ---
     const bool enableAlign = alignParam->load() > 0.5f;
