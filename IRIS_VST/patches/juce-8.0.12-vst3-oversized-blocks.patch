@@ -1,0 +1,65 @@
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+index c7b02c3774..0d35e208be 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -3725,8 +3725,16 @@ public:
+                 return kResultFalse;
+         }
+ 
++        // IRIS patch: some hosts send more samples than the maxSamplesPerBlock they
++        // announced in setupProcessing. The buffer mapper's scratch space is sized
++        // from that value, so processing such a block would write past the end of
++        // the heap allocation. Output silence instead of corrupting memory.
++        if (data.numSamples > scratchBlockCapacity)
++        {
++            clearOutputBuses (data);
++        }
+         // If all of these are zero, the host is attempting to flush parameters without processing audio.
+-        if (data.numSamples != 0 || data.numInputs != 0 || data.numOutputs != 0)
++        else if (data.numSamples != 0 || data.numInputs != 0 || data.numOutputs != 0)
+         {
+             if      (processSetup.symbolicSampleSize == Vst::kSample32) processAudio<float>  (data);
+             else if (processSetup.symbolicSampleSize == Vst::kSample64) processAudio<double> (data);
+@@ -3901,8 +3909,41 @@ private:
+         midiBuffer.ensureSize (2048);
+         midiBuffer.clear();
+ 
++        // IRIS patch: give the scratch buffers headroom so hosts that exceed the
++        // announced block size (seen in Aura) are still processed correctly.
++        scratchBlockCapacity = jmax (bufferSize, minimumScratchBlockSize);
++
+         bufferMapper.updateFromProcessor (p);
+-        bufferMapper.prepare (bufferSize);
++        bufferMapper.prepare (scratchBlockCapacity);
++    }
++
++    static constexpr int minimumScratchBlockSize = 8192;
++    int scratchBlockCapacity = minimumScratchBlockSize;
++
++    void clearOutputBuses (Vst::ProcessData& data) const
++    {
++        if (data.outputs == nullptr || data.numSamples <= 0)
++            return;
++
++        for (int b = 0; b < data.numOutputs; ++b)
++        {
++            auto& bus = data.outputs[b];
++
++            for (int c = 0; c < bus.numChannels; ++c)
++            {
++                if (processSetup.symbolicSampleSize == Vst::kSample64)
++                {
++                    if (bus.channelBuffers64 != nullptr && bus.channelBuffers64[c] != nullptr)
++                        zeromem (bus.channelBuffers64[c], sizeof (double) * (size_t) data.numSamples);
++                }
++                else if (bus.channelBuffers32 != nullptr && bus.channelBuffers32[c] != nullptr)
++                {
++                    zeromem (bus.channelBuffers32[c], sizeof (float) * (size_t) data.numSamples);
++                }
++            }
++
++            bus.silenceFlags = ((uint64) 1 << jmin (63, (int) bus.numChannels)) - 1;
++        }
+     }
+ 
+     //==============================================================================

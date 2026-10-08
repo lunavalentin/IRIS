@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-10-08 — V4.4.1: Aura crash (host sends larger blocks than announced)
+
+### Crash report analysed
+Aura 1.0.0 (JUCE 8.0.4 host), IRIS4 4.4.0 VST3. `EXC_BAD_ACCESS`, null write in `_platform_memmove` ← `IrisAudioProcessor::processSubBlock+204` ← `processBlock+464` on the CoreAudio IO thread. This is the same signature as the Oct 6 crash with 4.3.
+
+### Diagnosis (from the disassembly of the installed binary and the crash registers)
+- `processSubBlock+204` is the return address of `memcpy(inputBuffer.channels[0], …)`.
+  - x19 = 0 → channel 0.
+  - x27 = 2 → `numInputCh` = 2.
+  - x0 = NULL destination; x1 = valid source; 0x400 bytes = 256 samples.
+- So `inputBuffer` reported ≥ 2 channels while its channel 0 pointer was NULL. `AudioBuffer::setSize` can't produce that, so the memory had been overwritten.
+- The `buffer` argument was on the stack, so `processBlock` was in its slicing path: IRIS was prepared for 256 samples and Aura sent a larger block.
+- Only one IRIS instance was alive (one convolution loader, one set of workers), and no IRIS code was running on any other thread.
+- JUCE's VST3 wrapper (`ClientBufferMapperData`, juce_VST3Common.h) sizes its scratch buffers from the host's `maxSamplesPerBlock`, then copies/clears `data.numSamples` samples into them without a bounds check. A host that sends more than it announced makes the wrapper (and the plugin writing into the mapped buffer) write past the heap block. That zeroed the start of IRIS's input-buffer allocation.
+
+### Reproduction
+- New harness test `IrisHarness oversize`: a JUCE host loads the VST3, prepares it for 256 samples, then sends 512/1024/10000-sample blocks.
+- Against an ASan build of the IRIS VST3: **heap-buffer-overflow, WRITE of size 1024**. The allocation is in `ClientBufferMapper::prepare` ← `JuceVST3Component::setupProcessing`, and the write comes from `processSubBlock` clearing the mapped buffer.
+
+### Fix
+- `IRIS_VST/patches/juce-8.0.12-vst3-oversized-blocks.patch`, applied to the local JUCE checkout (`dev/IRIS_VST/JUCE`) and by CMake's FetchContent `PATCH_COMMAND`:
+  - Wrapper scratch buffers are sized to at least 8192 samples.
+  - Blocks above that capacity output silence instead of writing out of bounds.
+  - IRIS already slices large blocks internally, so blocks up to 8192 process normally.
+- Version 4.4.1.
+
+### Tests
+- ASan VST3 + ASan host, `oversize`: no errors. Right-channel level at block end 0.500 for 256 / 512 / 1024 (dry passes), 0.000 for 10000 (silenced). Before the patch: heap-buffer-overflow at the first 512 block.
+- Release Universal bundle, `oversize`: same values. `vst3`: loads as 4.4.1, 200 blocks, no non-finite samples, state round trip, editor, clean unload.
+- `auval -v aufx Irs4 IRIS`: AU VALIDATION SUCCEEDED.
+- Installed to `~/Library/Audio/Plug-Ins` (4.4.0 replaced; the Sep 24 backup is unchanged).
+
+### Open issues
+- **Aura should be fixed too.** It must not send blocks larger than the `maxSamplesPerBlock` it gives `setupProcessing` (VST3 rule), i.e. prepare hosted plugins with the largest chunk `ProcessorGraph::processChunk` can pass. Other JUCE plugins in Aura will corrupt memory the same way; this patch only protects IRIS.
+- The AU wrapper wasn't changed (Aura loads the VST3).
+
+
 ## 2026-10-07 (evening) — V4.4.0: audit fixes (branch `audit-fixes`)
 
 Yesterday's fixes were committed first, on their own (`c1255f9`). Everything below is in one follow-up commit.

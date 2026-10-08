@@ -14,8 +14,9 @@ if (APPLE)
     endif()
 endif()
 
-project(IRIS_VST VERSION 4.4.0)
+project(IRIS_VST VERSION 4.4.1)
 
+# The local JUCE checkout must have patches/juce-8.0.12-vst3-oversized-blocks.patch applied.
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../dev/IRIS_VST/JUCE")
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../dev/IRIS_VST/JUCE" JUCE)
 elseif (EXISTS "/Users/luna/Documents/Research/Codes/IRIS/dev/IRIS_VST/JUCE")
@@ -26,6 +27,9 @@ else()
         JUCE
         GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
         GIT_TAG        8.0.12
+        # Guard against hosts that send larger blocks than announced (VST3 wrapper heap overflow).
+        PATCH_COMMAND  git apply --whitespace=nowarn "${CMAKE_CURRENT_SOURCE_DIR}/patches/juce-8.0.12-vst3-oversized-blocks.patch"
+        UPDATE_DISCONNECTED TRUE
     )
     FetchContent_MakeAvailable(JUCE)
 endif()
@@ -42,7 +46,7 @@ juce_add_plugin(IRIS4
     PLUGIN_CODE Irs4
     FORMATS VST3 AU
     PRODUCT_NAME "IRIS4"
-    VERSION "4.4.0"
+    VERSION "4.4.1"
 )
 
 juce_generate_juce_header(IRIS4)
