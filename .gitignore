@@ -41,3 +41,7 @@ __pycache__/
 
 # Build logs
 *.log
+
+# Internal working documents (kept locally)
+AUDIT.md
+TESTING.md

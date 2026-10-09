@@ -19,7 +19,8 @@ public:
     void setListenerState(const juce::Uuid& id, const juce::String& name,
                           float x, float y, bool linked, bool locked,
                           IrisAudioProcessor* source);
-    void syncLinkMatrix(IrisAudioProcessor* source);
+    void syncLinkMatrix(IrisAudioProcessor* source,
+                        const std::vector<std::pair<juce::String, juce::String>>& edges);
 
     // Global parameter sync
     void setGlobalParam(const juce::String& paramId, float value, IrisAudioProcessor* source);
@@ -42,12 +43,21 @@ public:
 
     void sendOSC(const juce::OSCMessage& message);
 
+    // False when another process already owns UDP port 9001 (shown in the editor).
+    bool isReceiving() const { return isConnected; }
+
 private:
     IrisOSCManager();
     ~IrisOSCManager() override;
 
+    // Holds listLock while calling back (so no processor can be deleted meanwhile).
+    // Callbacks may take a processor's stateLock: lock order is listLock -> stateLock.
     void notifyProcessors(const std::function<void(IrisAudioProcessor*)>& callback,
                           IrisAudioProcessor* exclude = nullptr);
+
+    // Applies an incoming listener state to one processor (shared by OSC and local sync).
+    static void applyListenerState(IrisAudioProcessor* p, const juce::Uuid& id, const juce::String& name,
+                                   float x, float y, bool locked);
 
     juce::OSCReceiver oscReceiver;
     juce::OSCSender   oscSender;

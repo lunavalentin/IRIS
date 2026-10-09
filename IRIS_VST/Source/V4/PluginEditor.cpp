@@ -1,9 +1,10 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "IrisOSCManager.h"
 
 IrisAudioProcessorEditor::IrisAudioProcessorEditor (IrisAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p),
-      roomMap(p), controlPanel(p), listenerList(p), irList(p), wallList(p)
+      roomMap(p), controlPanel(p), listenerList(p), irList(p), wallList(p), overlay(p)
 {
     setLookAndFeel(&irisLookAndFeel);
 
@@ -12,12 +13,13 @@ IrisAudioProcessorEditor::IrisAudioProcessorEditor (IrisAudioProcessor& p)
     addAndMakeVisible(listenerList);
     addAndMakeVisible(irList);
     addAndMakeVisible(wallList);
+    addAndMakeVisible(overlay);
 
-    // Structural changes (add/remove IR, wall, listener) trigger a full list rebuild.
-    audioProcessor.onStateChanged = [this]
-    {
-        juce::MessageManager::callAsync([this] { updateUI(); });
-    };
+    // Structural changes (add/remove IR, wall, listener) are signalled through
+    // audioProcessor.structuralChangePending and picked up by timerCallback().
+    // No callbacks into the editor from other threads, nothing left queued after
+    // the editor closes.
+    audioProcessor.structuralChangePending.store(true);
 
     // 25Hz lightweight display timer — only repaints the overlay and room map.
     startTimerHz(25);
@@ -29,7 +31,6 @@ IrisAudioProcessorEditor::~IrisAudioProcessorEditor()
 {
     stopTimer();
     setLookAndFeel(nullptr);
-    audioProcessor.onStateChanged = nullptr;
 }
 
 void IrisAudioProcessorEditor::paint (juce::Graphics& g)
@@ -37,15 +38,17 @@ void IrisAudioProcessorEditor::paint (juce::Graphics& g)
     g.fillAll(Theme::backgroundDark);
 }
 
-void IrisAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
+void WeightOverlayComponent::paint (juce::Graphics& g)
 {
+    juce::ScopedLock sl(audioProcessor.stateLock);
     auto& neighbors = audioProcessor.currentNearestNeighbors;
 
     float sumW = 0.0f;
-    for (auto& p : neighbors) sumW += audioProcessor.smoothedWeights[p.id];
+    for (auto& p : neighbors)
+        if (auto it = audioProcessor.smoothedWeights.find(p.id); it != audioProcessor.smoothedWeights.end())
+            sumW += it->second;
 
-    float mix          = audioProcessor.mixParam->load();
-    float dynamicFade  = juce::jlimit(0.0f, 1.0f, sumW);
+    const float mix = audioProcessor.mixParam->load();
     if (sumW < 0.001f) sumW = 1.0f;
 
     const int x0 = 20;
@@ -56,15 +59,30 @@ void IrisAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
     g.drawText("Active IRs (Gain Factor):", x0, y, 200, 20, juce::Justification::left);
     y += 20;
 
+    // Share of the reverb you actually hear: energy after the wall attenuation.
+    auto energyOf = [&](const IRPoint& p)
+    {
+        auto it = audioProcessor.smoothedWeights.find(p.id);
+        const float normW = (it != audioProcessor.smoothedWeights.end() ? it->second : 0.0f) / sumW;
+        return normW * p.visibility * p.visibility;
+    };
+    float totalEnergy = 0.0f;
+    for (auto& p : neighbors) totalEnergy += energyOf(p);
+    if (totalEnergy < 1.0e-9f) totalEnergy = 1.0f;
+
     for (auto& p : neighbors)
     {
-        float normW       = audioProcessor.smoothedWeights[p.id] / sumW;
-        float actualFactor = normW * mix * dynamicFade;
+        const float energy       = energyOf(p);
+        const float actualFactor = std::sqrt(energy) * mix;   // gain actually applied (incl. walls)
+        const float share        = 100.0f * energy / totalEnergy;
 
         g.setColour(p.color);
-        g.drawText(p.name + " (" + juce::String(normW * 100.0f, 1) + "%)",
-                   x0, y, 200, 15, juce::Justification::left);
+        g.drawText(p.name, x0, y, 200, 15, juce::Justification::left, true);
 
+        juce::String detail = juce::String(share, share < 1.0f ? 2 : 1) + "% of reverb";
+        if (p.visibility < 0.999f)
+            detail << "   wall " << juce::roundToInt(juce::Decibels::gainToDecibels(p.visibility, -100.0f)) << " dB";
+        g.drawText(detail, x0 + 150, y + 15, 220, 12, juce::Justification::left);
         g.drawText(juce::String(actualFactor, 3), x0, y + 16, 40, 10, juce::Justification::left);
 
         const float barMaxLen = 100.0f;
@@ -77,6 +95,13 @@ void IrisAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 
     g.setColour(juce::Colours::white.withAlpha(0.5f));
     g.drawText(JucePlugin_VersionString, x0, y, 80, 10, juce::Justification::left);
+
+    if (! IrisOSCManager::getInstance().isReceiving())
+    {
+        g.setColour(juce::Colours::orange.withAlpha(0.8f));
+        g.drawText("OSC: port 9001 is used by another app - not receiving",
+                   x0, y + 14, 320, 12, juce::Justification::left);
+    }
 
     // Global compatibility warning — shown when any IR doesn't match the output bus.
     int numOut = audioProcessor.getTotalNumOutputChannels();
@@ -114,6 +139,7 @@ void IrisAudioProcessorEditor::resized()
     auto area = getLocalBounds();
 
     roomMap.setBounds(area.removeFromLeft(static_cast<int>(area.getWidth() * 0.6)));
+    overlay.setBounds(roomMap.getBounds());
 
     controlPanel.setBounds(area.removeFromTop(185));
 
@@ -130,10 +156,20 @@ void IrisAudioProcessorEditor::timerCallback()
     // Poll the flag set by the processor's 60Hz physics timer.
     // This keeps the overlay and room map in sync without triggering
     // expensive list rebuilds.
+    if (audioProcessor.structuralChangePending.exchange(false))
+        updateUI();
+
+    // MIDI learn: refresh the highlights and status; keep pulsing while learning.
+    if (audioProcessor.midiLearn.uiDirty.exchange(false) || audioProcessor.midiLearn.getLearningParam().isNotEmpty())
+    {
+        controlPanel.repaint();
+        roomMap.repaint();
+    }
+
     if (audioProcessor.pendingUIRepaint.exchange(false))
     {
         roomMap.repaint();
-        repaint();          // redraws paintOverChildren (weight overlay)
+        overlay.repaint();
     }
 }
 
@@ -144,5 +180,6 @@ void IrisAudioProcessorEditor::updateUI()
     controlPanel.update();
     irList.updateContent();
     wallList.updateContent();
-    repaint();
+    listenerList.refresh();
+    overlay.repaint();
 }

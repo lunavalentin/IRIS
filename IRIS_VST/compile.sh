@@ -12,7 +12,9 @@ echo "Build:  ${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
-cmake "${SCRIPT_DIR}" "$@"
+cmake "${SCRIPT_DIR}" -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" "$@"
 cmake --build . -j "$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
 
 echo ""

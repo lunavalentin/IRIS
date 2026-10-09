@@ -73,7 +73,7 @@ void ListenerListItem::paint(juce::Graphics& g)
 void ListenerListItem::mouseDown(const juce::MouseEvent&)
 {
     processor.selectedListenerId = listenerId;
-    if (processor.onStateChanged) processor.onStateChanged();
+    processor.notifyStructuralChange();
 }
 
 void ListenerListItem::updateFromModel()
@@ -86,14 +86,16 @@ void ListenerListItem::updateFromModel()
 
     if (isLocalList)
     {
+        // The local id changes when a session is restored: follow it.
+        listenerId = processor.localAudioListener.id;
         x      = processor.localAudioListener.x;
         y      = processor.localAudioListener.y;
         name   = processor.localAudioListener.name;
         locked = processor.localAudioListener.locked;
     }
-    else if (processor.remoteListeners.count(listenerId))
+    else if (auto it = processor.remoteListeners.find(listenerId); it != processor.remoteListeners.end())
     {
-        const auto& rl = processor.remoteListeners[listenerId];
+        const auto& rl = it->second;
         x = rl.x; y = rl.y; name = rl.name; locked = rl.locked;
     }
     else
@@ -101,7 +103,9 @@ void ListenerListItem::updateFromModel()
         return;
     }
 
-    nameLabel.setText(name + (isLocalList ? " (Local)" : ""), juce::dontSendNotification);
+    // Label::setText closes an open editor, so never touch it during a rename.
+    if (! nameLabel.isBeingEdited())
+        nameLabel.setText(name + (isLocalList ? " (Local)" : ""), juce::dontSendNotification);
 
     if (!xEditor.hasKeyboardFocus(true))
         xEditor.setText(juce::String(x, 2), juce::dontSendNotification);
@@ -115,9 +119,7 @@ void ListenerListItem::buttonClicked(juce::Button* b)
 {
     if (b == &linkToggle && isLocalList)
     {
-        auto* matrixComp = new ListenerLinkMatrixComponent(processor);
-        juce::CallOutBox::launchAsynchronously(std::unique_ptr<juce::Component>(matrixComp),
-                                               linkToggle.getScreenBounds(), nullptr);
+        if (onOpenLinkMatrix) onOpenLinkMatrix(linkToggle);
     }
     else if (b == &lockToggle)
     {
@@ -135,17 +137,20 @@ void ListenerListItem::textEditorFocusLost(juce::TextEditor& ed)
     float val = juce::jlimit(0.0f, 1.0f, ed.getText().getFloatValue());
 
     float cx = 0.0f, cy = 0.0f;
-    if (isLocalList)
     {
-        cx = processor.localAudioListener.x;
-        cy = processor.localAudioListener.y;
+        juce::ScopedLock sl(processor.stateLock);
+        if (isLocalList)
+        {
+            cx = processor.localAudioListener.x;
+            cy = processor.localAudioListener.y;
+        }
+        else if (auto it = processor.remoteListeners.find(listenerId); it != processor.remoteListeners.end())
+        {
+            cx = it->second.x;
+            cy = it->second.y;
+        }
+        else return;
     }
-    else if (processor.remoteListeners.count(listenerId))
-    {
-        cx = processor.remoteListeners[listenerId].x;
-        cy = processor.remoteListeners[listenerId].y;
-    }
-    else return;
 
     if (&ed == &xEditor) cx = val;
     if (&ed == &yEditor) cy = val;
@@ -157,26 +162,9 @@ void ListenerListItem::labelTextChanged(juce::Label* labelThatHasChanged)
 {
     if (labelThatHasChanged != &nameLabel) return;
 
-    juce::String newName = nameLabel.getText().replace(" (Local)", "");
-
-    if (isLocalList)
-    {
-        processor.localAudioListener.name = newName;
-        IrisOSCManager::getInstance().setListenerState(
-            processor.localAudioListener.id, newName,
-            processor.localAudioListener.x, processor.localAudioListener.y,
-            false, processor.localAudioListener.locked, &processor);
-    }
-    else
-    {
-        IrisOSCManager::getInstance().setListenerState(
-            listenerId, newName,
-            processor.remoteListeners[listenerId].x,
-            processor.remoteListeners[listenerId].y,
-            false, processor.remoteListeners[listenerId].locked, &processor);
-    }
-
-    if (processor.onStateChanged) processor.onStateChanged();
+    juce::String newName = nameLabel.getText().replace(" (Local)", "").trim().substring(0, 64);
+    if (newName.isNotEmpty())
+        processor.setListenerName(listenerId, newName);
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +172,7 @@ void ListenerListItem::labelTextChanged(juce::Label* labelThatHasChanged)
 // ---------------------------------------------------------------------------
 
 ListenerLinkMatrixComponent::ListenerLinkMatrixComponent(IrisAudioProcessor& p)
-    : processor(p)
+    : processor(&p)
 {
     setSize(200, 200);
     rebuildMatrix();
@@ -195,10 +183,29 @@ ListenerLinkMatrixComponent::~ListenerLinkMatrixComponent() {}
 
 void ListenerLinkMatrixComponent::resized() {}
 
+juce::String ListenerLinkMatrixComponent::nameFor(const juce::Uuid& id) const
+{
+    if (processor == nullptr) return {};
+    if (id == processor->localAudioListener.id) return processor->localAudioListener.name;
+    if (auto it = processor->remoteListeners.find(id); it != processor->remoteListeners.end())
+        return it->second.name;
+    return "?";
+}
+
 void ListenerLinkMatrixComponent::timerCallback()
 {
-    size_t count = 1 + processor.remoteListeners.size();
-    if (count != sortedIds.size())
+    if (processor == nullptr) return;
+
+    // Rebuild when the set of listeners changes (not just the count).
+    std::vector<juce::Uuid> ids;
+    {
+        juce::ScopedLock sl(processor->stateLock);
+        ids.push_back(processor->localAudioListener.id);
+        for (const auto& pair : processor->remoteListeners)
+            ids.push_back(pair.first);
+    }
+
+    if (ids != sortedIds)
         rebuildMatrix();
     else
         updateButtons();
@@ -206,13 +213,14 @@ void ListenerLinkMatrixComponent::timerCallback()
 
 void ListenerLinkMatrixComponent::rebuildMatrix()
 {
-    juce::ScopedLock sl(processor.stateLock);
+    if (processor == nullptr) return;
+    juce::ScopedLock sl(processor->stateLock);
 
     cells.clear();
     sortedIds.clear();
 
-    sortedIds.push_back(processor.localAudioListener.id);
-    for (const auto& pair : processor.remoteListeners)
+    sortedIds.push_back(processor->localAudioListener.id);
+    for (const auto& pair : processor->remoteListeners)
         sortedIds.push_back(pair.first);
 
     const int n        = static_cast<int>(sortedIds.size());
@@ -227,12 +235,8 @@ void ListenerLinkMatrixComponent::rebuildMatrix()
             juce::Uuid rId = sortedIds[static_cast<size_t>(r)];
             juce::Uuid cId = sortedIds[static_cast<size_t>(c)];
 
-            juce::String rName = (rId == processor.localAudioListener.id)
-                                 ? processor.localAudioListener.name
-                                 : processor.remoteListeners[rId].name;
-            juce::String cName = (cId == processor.localAudioListener.id)
-                                 ? processor.localAudioListener.name
-                                 : processor.remoteListeners[cId].name;
+            juce::String rName = nameFor(rId);
+            juce::String cName = nameFor(cId);
 
             Cell cell;
             cell.rId = rId;
@@ -248,7 +252,8 @@ void ListenerLinkMatrixComponent::rebuildMatrix()
 
             cell.btn->onClick = [this, rId, cId]()
             {
-                processor.toggleLinkMatrix(rId, cId, true);
+                if (processor == nullptr) return;
+                processor->toggleLinkMatrix(rId, cId, true);
                 updateButtons();
             };
 
@@ -263,7 +268,8 @@ void ListenerLinkMatrixComponent::rebuildMatrix()
 
 void ListenerLinkMatrixComponent::updateButtons()
 {
-    juce::ScopedLock sl(processor.stateLock);
+    if (processor == nullptr) return;
+    juce::ScopedLock sl(processor->stateLock);
     for (auto& cell : cells)
     {
         if (cell.rId == cell.cId) continue;
@@ -271,7 +277,7 @@ void ListenerLinkMatrixComponent::updateButtons()
         juce::String s1 = cell.rId.toString();
         juce::String s2 = cell.cId.toString();
         auto edge = std::make_pair(std::min(s1, s2), std::max(s1, s2));
-        cell.btn->setToggleState(processor.linkMatrix.count(edge) > 0, juce::dontSendNotification);
+        cell.btn->setToggleState(processor->linkMatrix.count(edge) > 0, juce::dontSendNotification);
     }
 }
 
@@ -285,13 +291,12 @@ void ListenerLinkMatrixComponent::paint(juce::Graphics& g)
     const int cellSize = 25;
     const int margin   = 30;
 
-    juce::ScopedLock sl(processor.stateLock);
+    if (processor == nullptr) return;
+    juce::ScopedLock sl(processor->stateLock);
     for (int i = 0; i < n; ++i)
     {
         juce::Uuid   id   = sortedIds[static_cast<size_t>(i)];
-        juce::String name = (id == processor.localAudioListener.id)
-                            ? processor.localAudioListener.name
-                            : processor.remoteListeners[id].name;
+        juce::String name = nameFor(id);
         if (name.length() > 2) name = name.substring(0, 2);
 
         g.drawText(name, margin + i * cellSize,  5,      cellSize, 20,       juce::Justification::centred);
@@ -313,7 +318,25 @@ ListenerListComponent::ListenerListComponent(IrisAudioProcessor& p)
     updateContent();
 }
 
-ListenerListComponent::~ListenerListComponent() {}
+ListenerListComponent::~ListenerListComponent()
+{
+    // The call-out box is a child of the editor and may be deleted after us;
+    // make sure it no longer touches the processor.
+    if (matrixContent != nullptr) matrixContent->detach();
+    if (matrixBox != nullptr)     matrixBox->dismiss();
+}
+
+void ListenerListComponent::openLinkMatrix(juce::Component& anchor)
+{
+    if (matrixBox != nullptr) { matrixBox->dismiss(); return; }
+
+    auto* parent  = getTopLevelComponent();
+    auto  content = std::make_unique<ListenerLinkMatrixComponent>(processor);
+    matrixContent = content.get();
+
+    const auto area = parent->getLocalArea(&anchor, anchor.getLocalBounds());
+    matrixBox = &juce::CallOutBox::launchAsynchronously(std::move(content), area, parent);
+}
 
 void ListenerListComponent::paint(juce::Graphics& g)
 {
@@ -337,6 +360,11 @@ void ListenerListComponent::resized()
 }
 
 void ListenerListComponent::timerCallback()
+{
+    refresh();
+}
+
+void ListenerListComponent::refresh()
 {
     std::vector<juce::Uuid> currentRemoteIds;
     {
@@ -367,6 +395,7 @@ void ListenerListComponent::updateContent()
     int y = 0;
 
     auto localItem = std::make_unique<ListenerListItem>(processor, processor.localAudioListener.id, true);
+    localItem->onOpenLinkMatrix = [this](juce::Component& anchor) { openLinkMatrix(anchor); };
     localItem->setBounds(0, y, contentContainer.getWidth(), rowH);
     contentContainer.addAndMakeVisible(localItem.get());
     items.push_back(std::move(localItem));

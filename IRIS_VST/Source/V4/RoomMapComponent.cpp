@@ -1,10 +1,10 @@
 #include "RoomMapComponent.h"
+#include "MidiLearnControls.h"
 #include "Theme.h"
 
 RoomMapComponent::RoomMapComponent(IrisAudioProcessor& p)
     : audioProcessor(p) {}
 
-RoomMapComponent::~RoomMapComponent() {}
 
 // ---------------------------------------------------------------------------
 // Paint
@@ -43,7 +43,7 @@ void RoomMapComponent::paint (juce::Graphics& g)
     // Walls
     float wallOpacity = audioProcessor.wallOpacityParam
                         ? audioProcessor.wallOpacityParam->load()
-                        : 0.8f;
+                        : 1.0f;
 
     for (const auto& wall : audioProcessor.walls)
     {
@@ -119,6 +119,28 @@ void RoomMapComponent::paint (juce::Graphics& g)
         g.setColour(Theme::listenerLocalRed);
         g.fillEllipse(px - radius, py - radius, radius * 2, radius * 2);
 
+        // MIDI learn state for Listener X / Y, drawn beside the dot.
+        {
+            auto& ml = audioProcessor.midiLearn;
+            juce::String tag;
+            const auto learning = ml.getLearningParam();
+            if (learning == "listenerX" || learning == "listenerY")
+                tag = (learning == "listenerX" ? "X " : "Y ") + juce::String("LEARNING...");
+            else
+            {
+                if (auto mx = ml.getMapping("listenerX")) tag << "X:CC" << mx->cc << " ";
+                if (auto my = ml.getMapping("listenerY")) tag << "Y:CC" << my->cc;
+            }
+
+            if (tag.isNotEmpty())
+            {
+                g.setFont(Theme::getBaseFont(9.0f));
+                g.setColour(learning.startsWith("listener") ? juce::Colours::orange : Theme::accentCyan);
+                g.drawText(tag.trim(), static_cast<int>(px + radius + 4), static_cast<int>(py + radius),
+                           110, 12, juce::Justification::left);
+            }
+        }
+
         g.setColour(Theme::textPrimary);
         g.setFont(Theme::getBaseFont(10.0f));
         g.drawText(local.name, px - radius, py - radius, radius * 2, radius * 2, juce::Justification::centred);
@@ -179,10 +201,30 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
                                                                 static_cast<int>(oy))) < 12.0f;
     };
 
+    // Listeners are drawn at their smoothed position (inertia), so accept a click
+    // on the dot as drawn as well as on the target position.
+    auto hitListener = [&](const IrisAudioProcessor::NetworkListener& l)
+    {
+        return hitRadius(l.currentX * getWidth(), l.currentY * getHeight())
+            || hitRadius(l.x * getWidth(), l.y * getHeight());
+    };
+
+    // Right-click on the local listener: MIDI learn for Listener X / Y.
+    if (e.mods.isPopupMenu())
+    {
+        if (hitListener(audioProcessor.localAudioListener))
+        {
+            juce::PopupMenu m;
+            m.addSubMenu("Listener X", MidiLearnUI::buildMenu(audioProcessor, "listenerX"));
+            m.addSubMenu("Listener Y", MidiLearnUI::buildMenu(audioProcessor, "listenerY"));
+            m.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(
+                juce::Rectangle<int>(e.getScreenX(), e.getScreenY(), 1, 1)));
+        }
+        return;
+    }
+
     // Local listener
-    float localPx = audioProcessor.localAudioListener.x * getWidth();
-    float localPy = audioProcessor.localAudioListener.y * getHeight();
-    if (hitRadius(localPx, localPy))
+    if (hitListener(audioProcessor.localAudioListener))
     {
         draggingId             = audioProcessor.localAudioListener.id;
         audioProcessor.selectedListenerId = draggingId;
@@ -192,16 +234,21 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
         dragStartMouseY        = static_cast<float>(e.y) / getHeight();
         dragStartObjX          = audioProcessor.localAudioListener.x;
         dragStartObjY          = audioProcessor.localAudioListener.y;
-        if (audioProcessor.onStateChanged) audioProcessor.onStateChanged();
+
+        // Tell the host a user gesture is in progress (Touch/Latch automation).
+        for (auto* id : { "listenerX", "listenerY" })
+            if (auto* prm = audioProcessor.parameters.getParameter(id))
+                prm->beginChangeGesture();
+        inListenerGesture = true;
+
+        audioProcessor.notifyStructuralChange();
         return;
     }
 
     // Remote listeners
     for (const auto& pair : audioProcessor.remoteListeners)
     {
-        float rPx = pair.second.x * getWidth();
-        float rPy = pair.second.y * getHeight();
-        if (hitRadius(rPx, rPy))
+        if (hitListener(pair.second))
         {
             draggingId             = pair.first;
             audioProcessor.selectedListenerId = draggingId;
@@ -211,7 +258,7 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
             dragStartMouseY        = static_cast<float>(e.y) / getHeight();
             dragStartObjX          = pair.second.x;
             dragStartObjY          = pair.second.y;
-            if (audioProcessor.onStateChanged) audioProcessor.onStateChanged();
+            audioProcessor.notifyStructuralChange();
             return;
         }
     }
@@ -269,7 +316,7 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
                 lastMouseX      = dragStartMouseX;
                 lastMouseY      = dragStartMouseY;
             }
-            if (audioProcessor.onStateChanged) audioProcessor.onStateChanged();
+            audioProcessor.notifyStructuralChange();
             return;
         }
     }
@@ -277,7 +324,7 @@ void RoomMapComponent::mouseDown(const juce::MouseEvent& e)
     if (audioProcessor.selectedWallId != juce::Uuid::null())
     {
         audioProcessor.selectedWallId = juce::Uuid::null();
-        if (audioProcessor.onStateChanged) audioProcessor.onStateChanged();
+        audioProcessor.notifyStructuralChange();
     }
 }
 
@@ -296,10 +343,18 @@ void RoomMapComponent::mouseDrag(const juce::MouseEvent& e)
 
         if (dragHandle == 0)
         {
-            w_x1 = juce::jlimit(0.0f, 1.0f, dragStartWall[0] + dx);
-            w_y1 = juce::jlimit(0.0f, 1.0f, dragStartWall[1] + dy);
-            w_x2 = juce::jlimit(0.0f, 1.0f, dragStartWall[2] + dx);
-            w_y2 = juce::jlimit(0.0f, 1.0f, dragStartWall[3] + dy);
+            // Clamp the move, not each end, so the wall keeps its shape at the border.
+            const float minX = std::min(dragStartWall[0], dragStartWall[2]);
+            const float maxX = std::max(dragStartWall[0], dragStartWall[2]);
+            const float minY = std::min(dragStartWall[1], dragStartWall[3]);
+            const float maxY = std::max(dragStartWall[1], dragStartWall[3]);
+            const float cdx  = juce::jlimit(-minX, 1.0f - maxX, dx);
+            const float cdy  = juce::jlimit(-minY, 1.0f - maxY, dy);
+
+            w_x1 = dragStartWall[0] + cdx;
+            w_y1 = dragStartWall[1] + cdy;
+            w_x2 = dragStartWall[2] + cdx;
+            w_y2 = dragStartWall[3] + cdy;
         }
         else if (dragHandle == 1)
         {
@@ -353,6 +408,22 @@ void RoomMapComponent::mouseDrag(const juce::MouseEvent& e)
 void RoomMapComponent::mouseUp(const juce::MouseEvent&)
 {
     draggingId = juce::Uuid::null();
+
+    if (inListenerGesture)
+    {
+        for (auto* id : { "listenerX", "listenerY" })
+            if (auto* prm = audioProcessor.parameters.getParameter(id))
+                prm->endChangeGesture();
+        inListenerGesture = false;
+    }
+}
+
+RoomMapComponent::~RoomMapComponent()
+{
+    if (inListenerGesture)
+        for (auto* id : { "listenerX", "listenerY" })
+            if (auto* prm = audioProcessor.parameters.getParameter(id))
+                prm->endChangeGesture();
 }
 
 // ---------------------------------------------------------------------------

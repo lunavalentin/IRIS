@@ -41,7 +41,7 @@ private:
 };
 
 // The main list container
-class IRListComponent : public juce::Component, public juce::FileDragAndDropTarget
+class IRListComponent : public juce::Component, public juce::FileDragAndDropTarget, private juce::Timer
 {
 public:
     IRListComponent(IrisAudioProcessor& p);
@@ -57,6 +57,8 @@ public:
     void filesDropped (const juce::StringArray& files, int x, int y) override;
 
 private:
+    void timerCallback() override;   // keeps x/y in sync with drags on the map
+
     IrisAudioProcessor& processor;
     
     juce::Viewport viewport;
