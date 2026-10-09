@@ -63,7 +63,7 @@ void WeightOverlayComponent::paint (juce::Graphics& g)
     {
         auto it = audioProcessor.smoothedWeights.find(p.id);
         float normW        = (it != audioProcessor.smoothedWeights.end() ? it->second : 0.0f) / sumW;
-        float actualFactor = std::sqrt(normW) * mix;   // equal-power gain actually applied
+        float actualFactor = std::sqrt(normW) * p.visibility * mix;   // gain actually applied (incl. walls)
 
         g.setColour(p.color);
         g.drawText(p.name + " (" + juce::String(normW * 100.0f, 1) + "%)",

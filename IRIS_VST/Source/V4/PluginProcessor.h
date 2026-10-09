@@ -22,6 +22,7 @@ struct RenderState
     std::vector<ActiveIR> activeIRs;
     std::vector<ActiveIR> fadingOut;   // replaced/removed IRs, faded out on the audio thread
     bool hasIRs = false;               // at least one IR is loaded (otherwise the plugin passes dry)
+    bool audible = false;              // at least one active IR has a non-zero gain
 };
 
 struct IRPoint
@@ -44,6 +45,10 @@ struct IRPoint
 
     float normGain    = 1.0f;
     int   onsetOffset = 0;
+
+    // Line-of-sight factor from the listener (1 = in view, 0 = fully blocked),
+    // applied as an amplitude gain to this IR's output.
+    float visibility = 1.0f;
 
     // Debug data exposed to the UI overlay
     float debug_rawWeight        = 0.0f;

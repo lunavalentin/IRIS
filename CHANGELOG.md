@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-10-08 — V4.5.4: walls decide by line of sight
+
+### Report
+After 4.5.3 the sound always followed the nearest IR, but walls had no effect.
+
+### Cause
+- Wall occlusion multiplied the Gaussian weight, but the gains are then normalised to unit energy. A wall therefore only changed the balance between IRs.
+- At low spread the distance term dominates completely: a 0.05 occlusion factor is −3 in the log domain, while the distance exponent is in the thousands. So the nearest IR won even behind a wall, and was then renormalised back to full level.
+
+### New rule (Luna's request: "take the closest IR in line of sight")
+- **Selection:** a blocked IR counts as farther away: `d_eff² = d² + (1.5 · (1 − visibility))²`.
+  - `visibility` is the occlusion factor (wall attenuation × Wall Opacity × edge fade), so the rule is continuous.
+  - Fully blocked adds 1.5 room units, more than the room diagonal, so the nearest IR in view wins at any spread, including 0.
+  - Wall Opacity 0 → no penalty (walls off).
+- **Level:** each IR's gain is `sqrt(w / Σw) · visibility`. An IR in view plays at full level. If nothing is in view, the nearest blocked IR plays attenuated by its wall. If everything is fully blocked, the dry signal passes.
+- Weight overlay gain bars include visibility. Version 4.5.4.
+
+### Tests (`IrisHarness los`, new; IRs tagged by delay so the output shows which one plays)
+- Near IR A behind a wall (att 0.05), far IR B in view → A 0.000, B 1.000 at spread 0.0 and 0.3.
+- Wall Opacity 0 → A 1.000, B 0.000.
+- Spread 0.3, wall att 0.5 → A 0.000, B 1.000. A partially transparent wall still yields to the IR in view; noted as a possible tuning point.
+- Listener in a closed room (att 0.05), no IR in view → A 0.050 (nearest blocked, attenuated), B 0.000. Fully opaque walls → dry 1.000, A/B 0.
+- Sliding past the wall end at spread 0: B until x = 0.69, A from 0.70 (a single-IR switch, as at spread 0 without walls; smoothed in time by the weight smoothing and gain ramps).
+- Regression: `far`, `m5`, `n6`, `h1`, `state`, `multi`, `latch` unchanged.
+- ASan `los`, `churn`, `editor`, `fosc`, `fstate`, `fjson`: no errors.
+- `perf` unchanged (block 128 p99 1.06 ms).
+- `auval` passes; installed 4.5.4 (Universal).
+
+
 ## 2026-10-08 — V4.5.3: silence far from every IR
 
 ### Report

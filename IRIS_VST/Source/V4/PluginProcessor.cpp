@@ -680,7 +680,7 @@ void IrisAudioProcessor::processSubBlock (juce::AudioBuffer<float>& buffer)
 
     // No IR audible at all (no IRs, or every IR completely blocked by walls with
     // attenuation 0): pass the dry signal rather than going silent.
-    const float wet = (state != nullptr && state->hasIRs && ! state->activeIRs.empty()) ? userMix : 0.0f;
+    const float wet = (state != nullptr && state->hasIRs && state->audible) ? userMix : 0.0f;
     const float dry = 1.0f - wet;
     if (lastWet < 0.0f) { lastWet = wet; lastDry = dry; }
 
@@ -1602,26 +1602,32 @@ void IrisAudioProcessor::updateWeightsGaussian()
         p.debug_occlusionFactor   = occlusionFactor;
         p.debug_intersectionCount = intersectionCount;
 
-        // An IR whose file is missing has nothing to play: no weight, so the others
-        // are renormalised instead of leaving a hole in the mix.
-        if (! p.convolvers.empty() && occlusionFactor > 0.0f)
+        p.visibility = juce::jlimit(0.0f, 1.0f, occlusionFactor);
+
+        // Line of sight first: a blocked IR counts as if it were farther away. The
+        // penalty grows with how much is blocked; fully blocked adds more than the
+        // room diagonal, so the nearest IR in view always wins, even at spread 0.
+        // (An IR whose file is missing gets no weight at all.)
+        if (! p.convolvers.empty())
         {
-            logWeight[pi] = -distSq(p.x, p.y, lx, ly) / twoSigmaSq + std::log(occlusionFactor);
+            constexpr float occlusionDistancePenalty = 1.5f;   // room units at full blocking
+            const float penalty = occlusionDistancePenalty * (1.0f - p.visibility);
+            logWeight[pi] = -(distSq(p.x, p.y, lx, ly) + penalty * penalty) / twoSigmaSq;
             bestLogWeight = std::max(bestLogWeight, logWeight[pi]);
         }
     }
 
-    // Pass 2: weights relative to the strongest IR. Same proportions as the absolute
-    // Gaussian, but the strongest IR always has weight 1. (Far from every IR at low
-    // spread, the absolute values underflow to 0 in float and nothing plays.)
+    // Pass 2: weights relative to the best-placed IR (computed in the log domain, so
+    // far from every IR at low spread they can't underflow to 0 and go silent).
+    // The wall attenuation itself is applied later as a gain (visibility).
     for (size_t pi = 0; pi < points.size(); ++pi)
     {
         auto& p = points[pi];
         float w = std::isfinite(logWeight[pi]) ? std::exp(logWeight[pi] - bestLogWeight) : 0.0f;
         if (! std::isfinite(w)) w = 0.0f;
 
-        p.debug_rawWeight   = p.debug_occlusionFactor > 0.0f ? w / p.debug_occlusionFactor : 0.0f;
-        p.debug_finalWeight = w;
+        p.debug_rawWeight   = w;
+        p.debug_finalWeight = w * p.visibility;
 
         rawWeights.push_back({ w, &p });
         if (w > maxWeight) maxWeight = w;
@@ -1734,9 +1740,11 @@ bool IrisAudioProcessor::rebuildRenderState (bool snapWeights)
         {
             // Equal-power interpolation: the IR tails are decorrelated, so their
             // gains must have unit energy (sum of squares = 1), not unit sum.
+            // ... and the wall in between attenuates what is heard (1 when in view).
             ActiveIR air;
             air.convolvers     = p.convolvers;
-            air.weight         = std::sqrt(w / sumForNorm);
+            air.weight         = std::sqrt(w / sumForNorm) * p.visibility;
+            if (air.weight > 1.0e-4f) next->audible = true;
             air.sourceChannels = p.sourceChannels;
             air.id             = p.id;
             next->activeIRs.push_back(air);
