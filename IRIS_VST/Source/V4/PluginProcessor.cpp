@@ -258,6 +258,9 @@ IrisAudioProcessor::IrisAudioProcessor()
 IrisAudioProcessor::~IrisAudioProcessor()
 {
     stopTimer();
+    if (remoteGestureOpen)
+        for (auto* id : { "listenerX", "listenerY" })
+            if (auto* prm = parameters.getParameter(id)) prm->endChangeGesture();
     oscManager.removeProcessor(this);
     workers.reset();
 }
@@ -598,6 +601,14 @@ void IrisAudioProcessor::processSubBlock (juce::AudioBuffer<float>& buffer)
             if (ir.convolvers.empty() || ir.convolvers[0] == nullptr) continue;
 
             const auto* key = ir.convolvers[0].get();
+
+            // Never run a convolver twice in one block (it is not thread-safe and its
+            // state would advance twice).
+            bool alreadyQueued = false;
+            for (int j = 0; j < numJobs && ! alreadyQueued; ++j)
+                alreadyQueued = jobs[static_cast<size_t>(j)].ir->convolvers[0].get() == key;
+            if (alreadyQueued) { duplicateJobsSkipped.fetch_add(1, std::memory_order_relaxed); continue; }
+
             FadeTrack* track = nullptr;
             for (int f = 0; f < numFadeTracks; ++f)
                 if (fadeTracks[static_cast<size_t>(f)].conv == key)
@@ -1712,6 +1723,20 @@ bool IrisAudioProcessor::rebuildRenderState (bool snapWeights)
                     pendingFadeOuts.push_back({ old, 6 });   // ~100 ms at 60 Hz, fade itself is 30 ms
             }
 
+        // An IR that came back (the listener moved back within the fade window) is
+        // playing again: it must not also be faded, or the same convolver would be
+        // processed twice per block, possibly on two threads at once.
+        auto isActive = [&next] (const ActiveIR& ir)
+        {
+            for (const auto& n : next->activeIRs)
+                if (! n.convolvers.empty() && ! ir.convolvers.empty() && n.convolvers[0] == ir.convolvers[0])
+                    return true;
+            return false;
+        };
+        pendingFadeOuts.erase(std::remove_if(pendingFadeOuts.begin(), pendingFadeOuts.end(),
+                                             [&](const PendingFade& f) { return isActive(f.ir); }),
+                              pendingFadeOuts.end());
+
         for (auto& f : pendingFadeOuts)
         {
             next->fadingOut.push_back(f.ir);
@@ -1791,6 +1816,18 @@ void IrisAudioProcessor::timerCallback()
     // --- 3. Mirror the listener position into the host parameters, only on change ---
     // (Writing every tick floods the host with edits and fights automation.)
     {
+        // Moved from another instance / a link / OSC: hold a gesture while it moves so
+        // the host records it in Touch/Latch, exactly like a drag in this editor.
+        const double nowMs = juce::Time::getMillisecondCounterHiRes();
+        const bool remoteMoving = nowMs - remoteListenerMoveMs < 300.0;
+
+        if (remoteMoving && ! remoteGestureOpen)
+        {
+            for (auto* id : { "listenerX", "listenerY" })
+                if (auto* prm = parameters.getParameter(id)) prm->beginChangeGesture();
+            remoteGestureOpen = true;
+        }
+
         listenerWritebackThread.store(juce::Thread::getCurrentThreadId());
         if (auto* px = parameters.getParameter("listenerX"))
             if (std::abs(px->convertFrom0to1(px->getValue()) - localX) > 1.0e-4f)
@@ -1799,6 +1836,13 @@ void IrisAudioProcessor::timerCallback()
             if (std::abs(py->convertFrom0to1(py->getValue()) - localY) > 1.0e-4f)
                 py->setValueNotifyingHost(py->convertTo0to1(localY));
         listenerWritebackThread.store(nullptr);
+
+        if (! remoteMoving && remoteGestureOpen)
+        {
+            for (auto* id : { "listenerX", "listenerY" })
+                if (auto* prm = parameters.getParameter(id)) prm->endChangeGesture();
+            remoteGestureOpen = false;
+        }
     }
 
     // --- 4. Weight output ---

@@ -14,7 +14,7 @@ if (APPLE)
     endif()
 endif()
 
-project(IRIS_VST VERSION 4.5.0)
+project(IRIS_VST VERSION 4.5.1)
 
 # The local JUCE checkout must have patches/juce-8.0.12-vst3-oversized-blocks.patch applied.
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../dev/IRIS_VST/JUCE")
@@ -47,7 +47,7 @@ juce_add_plugin(IRIS4
     AU_MAIN_TYPE kAudioUnitType_Effect   # stay an "aufx" so existing AU sessions keep loading
     FORMATS VST3 AU
     PRODUCT_NAME "IRIS4"
-    VERSION "4.5.0"
+    VERSION "4.5.1"
 )
 
 juce_generate_juce_header(IRIS4)

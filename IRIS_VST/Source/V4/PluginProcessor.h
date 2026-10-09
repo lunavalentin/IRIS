@@ -196,6 +196,11 @@ public:
     void updateListenerPosition(juce::Uuid id, float x, float y, bool broadcast = true);
     void setListenerLocked(juce::Uuid id, bool locked, bool broadcast = true);
     void setListenerName(juce::Uuid id, const juce::String& name);
+
+    // Called (message thread) when this instance's own listener is moved from outside:
+    // dragged in another instance's map, pulled by a link, or moved over OSC. The timer
+    // then wraps the Listener X/Y write-back in a change gesture so Touch/Latch record it.
+    void noteRemoteListenerMove() { remoteListenerMoveMs = juce::Time::getMillisecondCounterHiRes(); }
     void requestFullOSCSync();
 
     // Layout persistence
@@ -288,6 +293,10 @@ public:
     // Head size of the non-uniform partitioned convolution (zero latency).
     static constexpr int kConvolutionHeadSize = 4096;
 
+    // Times the audio thread had to skip a convolver already queued in the same block
+    // (should stay 0: rebuildRenderState never publishes one twice).
+    std::atomic<int> duplicateJobsSkipped { 0 };
+
 private:
     // Render pipeline
     std::shared_ptr<RenderState> renderState;
@@ -319,6 +328,9 @@ private:
     std::atomic<juce::Thread::ThreadID> listenerWritebackThread { nullptr };
 
     // Work requested by parameterChanged(), applied by timerCallback().
+    double remoteListenerMoveMs  = 0.0;     // message thread
+    bool   remoteGestureOpen     = false;   // message thread
+
     std::atomic<bool>     reprocessPending      { false };
     std::atomic<bool>     listenerParamDirty    { false };
     std::atomic<uint32_t> pendingBroadcastMask  { 0 };

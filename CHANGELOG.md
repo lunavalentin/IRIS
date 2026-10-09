@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-10-08 — V4.5.1: REAPER crash while moving listeners; Latch recording of other instances
+
+### Report
+REAPER 7.79, 3 tracks with IRIS. Recording Listener X/Y in Latch mode: moving A's listener recorded A, but moving B and C from A's map recorded nothing for B and C. Then REAPER crashed.
+
+### Crash analysis
+- `EXC_BAD_ACCESS` null write in `_platform_memmove` ← `juce::dsp::ConvolutionEngine::processSamples` on thread "IRIS conv 3".
+- At the same moment "IRIS conv 0" of the **same instance** (same worker set) was also inside `ConvolutionEngine` code.
+- Cause (4.4.0 regression): when an IR drops out of the mix, it is queued for a ~100 ms fade-out (`pendingFadeOuts`). If the listener moves back within that window, the IR becomes active again while its fade is still queued. The render state then contains the **same convolver twice** (once active, once fading), so it is processed twice per block, often on two threads at once. JUCE convolvers aren't thread-safe, so their internal buffers get corrupted.
+- Measured with the new harness test `churn` (6 IRs, listener sweeping across the activation thresholds): the same convolver was in both lists on **105 of 1103** timer ticks.
+
+### Fixes
+- `rebuildRenderState`: an IR that is active again is removed from `pendingFadeOuts` before the fade list is published.
+- `processSubBlock`: a fade whose convolver is already queued in this block is skipped (second line of defence). Counted in `duplicateJobsSkipped`.
+- Latch/Touch for listeners moved from outside their own editor (dragged in another instance's map, pulled by a link, moved over OSC):
+  - `applyListenerState` calls `noteRemoteListenerMove()`.
+  - The timer opens a begin/end change gesture on Listener X/Y around the write-back, closed 300 ms after the last move.
+- Version 4.5.1.
+
+### Tests
+- `churn` after the fix: 732 285 blocks / 1100 ticks in Release, 14 666 / 1134 under TSan (0 warnings), 110 706 under ASan (0 errors). Duplicate jobs skipped by the audio-thread guard: 0 (the render-state fix prevents every case).
+- `latch` (new; 3 instances, gestures counted with an `AudioProcessorListener`):
+  - Dragging B's dot in A's map for 1 s → B: 2 gesture begins (X, Y), 61 value changes, 2 ends.
+  - With C linked to A, moving A → C: 2 begins, 41 changes, 2 ends.
+- Regression: `h1`, `multi`, `migr`, `n1`, `c2` (no deadlock), ASan `editor`, `midi`, `fosc`, `race`: no errors.
+- `auval` passes. `vst3`/`vst3midi`: installed 4.5.1 loads, processes, and MIDI CC → Spread works.
+
+### Open issues
+- Not yet tried again in REAPER: TESTING.md §5c.
+
+
 ## 2026-10-08 — V4.5.0: MIDI learn (modelled on Aura)
 
 ### What Aura does (read from `~/Documents/AURA/midi_mappings.json` and strings in Aura.app; its source isn't on this Mac)

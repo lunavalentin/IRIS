@@ -171,8 +171,12 @@ void IrisOSCManager::applyListenerState(IrisAudioProcessor* p, const juce::Uuid&
             // A locked local listener never moves because of a remote message.
             if (! wasLocked || ! locked)
             {
-                p->localAudioListener.x = juce::jlimit(0.0f, 1.0f, x);
-                p->localAudioListener.y = juce::jlimit(0.0f, 1.0f, y);
+                const float nx = juce::jlimit(0.0f, 1.0f, x);
+                const float ny = juce::jlimit(0.0f, 1.0f, y);
+                if (nx != p->localAudioListener.x || ny != p->localAudioListener.y)
+                    p->noteRemoteListenerMove();
+                p->localAudioListener.x = nx;
+                p->localAudioListener.y = ny;
             }
         }
         else if (auto it = p->remoteListeners.find(id); it != p->remoteListeners.end())
