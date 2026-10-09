@@ -225,19 +225,21 @@ public:
     void updateParameterNotifiers(juce::String paramId, float value);
     void parameterChanged(const juce::String& parameterID, float newValue) override;
 
-    // OSC broadcast flags
+    // Broadcast flags (sync to other instances / OSC). Only listener positions and
+    // links are shared by default; everything else is opt-in in the Broadcast menu.
+    // Sessions that saved their flags keep them.
     bool broadcastListener = true;
-    bool broadcastIRs      = true;
-    bool broadcastWalls    = true;
+    bool broadcastIRs      = false;
+    bool broadcastWalls    = false;
 
     // Per-parameter broadcast flags
-    bool broadcastInertia     = true;
-    bool broadcastFreeze      = true;
-    bool broadcastSpread      = true;
-    bool broadcastMix         = false;   // OFF by default — mix is usually per-instance
-    bool broadcastWallOpacity = true;
-    bool broadcastNormalize   = true;
-    bool broadcastAlign       = true;
+    bool broadcastInertia     = false;
+    bool broadcastFreeze      = false;
+    bool broadcastSpread      = false;
+    bool broadcastMix         = false;
+    bool broadcastWallOpacity = false;
+    bool broadcastNormalize   = false;
+    bool broadcastAlign       = false;
 
     // Set by the processor timer when display data (weights, positions) has changed.
     // The editor polls this at its own repaint rate rather than being pushed at 60Hz.

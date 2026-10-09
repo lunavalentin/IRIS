@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-08 — V4.5.6: broadcast defaults; REAPER Latch investigation
+
+### From Luna's TESTING.md notes
+- 2.2 "change the default to nothing broadcasted" → new instances broadcast only the **listener** (positions and links, which linking and moving other listeners depend on, per Luna's choice). IRs, walls and all parameters default to off. Sessions with saved flags keep them.
+- 3.5 "this IR has to appear in the weight factor list" → checked by rendering the editor at spread 0 (`IrisHarness snap` with SNAP_SPREAD=0): the chosen IR is listed at 100.0 %. The note was probably written before 4.5.3, when far positions had no active IR.
+- 5c.1/5c.2 (Latch recording of B/C from A's map doesn't work) and 5.4 (in Read mode, remote listeners don't snap back) → investigated in REAPER, see below.
+
+### REAPER investigation (REAPER 7.79, automated with ReaScript + an OSC driver; temporary projects only)
+- Host-level check first (`IrisHarness vst3latch`, new): 3 real VST3 instances in a JUCE host, A–C linked through the session state, A moved through the host. The host receives C's gestures: begins 2, ends 2, 29 Listener X/Y changes, C ends at A's position. B, not linked, shows nothing. So IRIS sends the right VST3 events.
+- In REAPER (B moved through `/iris/listener/sync`, the same code path as dragging B in A's map):
+  - REAPER's view of B's Listener X follows the moves (e.g. 0.85 → 0.74 → 0.41), so the values arrive.
+  - Write mode: envelope points recorded (6).
+  - Latch with B's FX window **closed**: 1 point (nothing recorded). Latch with B's window **open**: **128 points**.
+- Conclusion: REAPER only starts Latch/Touch recording for a plugin whose window is open. That's also why, in Read mode, REAPER snaps back only the listener whose window is open (5.4). Workaround documented in TESTING.md: open B/C windows, or use Write for those tracks.
+- One REAPER test tab may still be open (untitled, 3 IRIS tracks); the others were saved to the scratch folder and closed.
+
+### Tests
+- `multi` prints the defaults (listener 1, irs 0, walls 0, spread 0, mix 0); layout sync still works once IRs/walls are ticked. `c3` and `latch` unchanged.
+- `auval` passes; installed 4.5.6 (`vst3`: loads as 4.5.6).
+
+
 ## 2026-10-08 — V4.5.5: weight overlay shows what is heard
 
 ### Report
