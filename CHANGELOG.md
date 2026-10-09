@@ -1,5 +1,7 @@
 # Changelog
 
+_AUDIT.md (audit item IDs such as C1, H5, N6) and TESTING.md (manual test plan) referenced below are internal working documents and are not part of the repository._
+
 ## 2026-10-08 — V4.5.6: broadcast defaults; REAPER Latch investigation
 
 ### From Luna's TESTING.md notes
