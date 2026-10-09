@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-08 — V4.5.5: weight overlay shows what is heard
+
+### Report
+Screenshot: IR "SDF", behind a wall, appeared to count in the mix.
+
+### Analysis
+- The overlay's percentage was the weight share **before** wall attenuation (SDF: 2.8%). Its real gain was 0.008, about −42 dB: the 0.05 wall attenuation applied to √0.028. So it was already inaudible, as intended.
+- SDF still gets a small weight because Spread is 0.65 (σ ≈ 0.64): at that width, the line-of-sight distance penalty only reduces it to a few percent.
+- The long file names also cut off the percentages of the IRs that mattered.
+
+### Change (`PluginEditor.cpp`, overlay)
+- Each IR shows its gain and its **share of the reverb you hear** (energy after walls: `normW · visibility²`). When a wall attenuates it, the wall's effect is shown in dB ("wall −26 dB").
+- The name gets its own line, so the numbers are never truncated.
+- Version 4.5.5.
+
+### Tests
+- Rendered the editor to PNG (`IrisHarness snap`): demo layout, spread 0.65, listener (0.35, 0.35). Two IRs in view → 55.6% / 44.4% of reverb; two behind walls → 0.01% each, "wall −26 dB".
+- ASan `editor` (20 open/flood/close cycles): no errors.
+- `auval` passes; installed 4.5.5 (`vst3`: loads as 4.5.5).
+
+
 ## 2026-10-08 — V4.5.4: walls decide by line of sight
 
 ### Report

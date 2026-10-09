@@ -59,16 +59,30 @@ void WeightOverlayComponent::paint (juce::Graphics& g)
     g.drawText("Active IRs (Gain Factor):", x0, y, 200, 20, juce::Justification::left);
     y += 20;
 
-    for (auto& p : neighbors)
+    // Share of the reverb you actually hear: energy after the wall attenuation.
+    auto energyOf = [&](const IRPoint& p)
     {
         auto it = audioProcessor.smoothedWeights.find(p.id);
-        float normW        = (it != audioProcessor.smoothedWeights.end() ? it->second : 0.0f) / sumW;
-        float actualFactor = std::sqrt(normW) * p.visibility * mix;   // gain actually applied (incl. walls)
+        const float normW = (it != audioProcessor.smoothedWeights.end() ? it->second : 0.0f) / sumW;
+        return normW * p.visibility * p.visibility;
+    };
+    float totalEnergy = 0.0f;
+    for (auto& p : neighbors) totalEnergy += energyOf(p);
+    if (totalEnergy < 1.0e-9f) totalEnergy = 1.0f;
+
+    for (auto& p : neighbors)
+    {
+        const float energy       = energyOf(p);
+        const float actualFactor = std::sqrt(energy) * mix;   // gain actually applied (incl. walls)
+        const float share        = 100.0f * energy / totalEnergy;
 
         g.setColour(p.color);
-        g.drawText(p.name + " (" + juce::String(normW * 100.0f, 1) + "%)",
-                   x0, y, 200, 15, juce::Justification::left);
+        g.drawText(p.name, x0, y, 200, 15, juce::Justification::left, true);
 
+        juce::String detail = juce::String(share, share < 1.0f ? 2 : 1) + "% of reverb";
+        if (p.visibility < 0.999f)
+            detail << "   wall " << juce::roundToInt(juce::Decibels::gainToDecibels(p.visibility, -100.0f)) << " dB";
+        g.drawText(detail, x0 + 150, y + 15, 220, 12, juce::Justification::left);
         g.drawText(juce::String(actualFactor, 3), x0, y + 16, 40, 10, juce::Justification::left);
 
         const float barMaxLen = 100.0f;
