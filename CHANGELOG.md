@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-10-08 — V4.5.3: silence far from every IR
+
+### Report
+At some listener positions, too far from any IR, there was neither wet nor dry signal.
+
+### Cause
+- Weights are `exp(-d² / 2σ²)` with σ = 0.001 + 1.5·spread² (0.016 at spread 0.1). Far from every IR the value underflows to exactly 0 in float.
+- Then no IR is active, so there's no wet signal. Since 4.4.0 (wet = Mix), the dry signal at Mix 100 % is 0, so the output was silent.
+- Same result when every IR is fully blocked by walls with attenuation 0.
+
+### Fix (`updateWeightsGaussian`, `processSubBlock`)
+- Weights are computed in the log domain relative to the strongest IR after occlusion: `exp(logW_i − max logW)`. The proportions are mathematically identical to before, but the strongest audible IR always has weight 1, so it can't underflow.
+- If no IR is audible at all (every IR fully blocked), the dry signal passes instead of silence (wet treated as 0, ramped).
+- Version 4.5.3.
+
+### Tests (`IrisHarness far`, new; before = 4.5.2 at commit 60d29c5, same test program)
+| Case | 4.5.2 | 4.5.3 |
+|---|---|---|
+| Listener (0.95, 0.95), IRs near (0.1, 0.1), mix 100 %, output RMS (input 0.144), spread 0.0 / 0.1 / 0.3 | 0.0000 / 0.0000 / 0.0000 | 0.1444 / 0.1444 / 0.1460 |
+| Demo layout, 21×21 grid, positions with no active IR, spread 0.0 / 0.1 / 0.3 | 437 / 165 / 0 of 441 | 0 / 0 / 0 |
+| Only IR behind a fully blocking wall (attenuation 0) | 0.0000 | 0.1441 (dry) |
+
+- Regression: `h1`, `m2`, `m5`, `n6`, `walls2`, `state`, `multi`, `latch` unchanged.
+- ASan `churn`, `far`, `editor`, `fosc`: no errors.
+- `perf` block 128 p99 1.04 ms, block 512 p99 1.46 ms (unchanged).
+- `auval` passes; installed bundle 4.5.3 (Universal).
+
+
 ## 2026-10-08 — V4.5.2: wall join tolerance 0.05, gaps bridged
 
 ### Change
