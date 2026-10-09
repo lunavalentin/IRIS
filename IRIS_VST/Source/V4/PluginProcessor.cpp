@@ -1522,19 +1522,43 @@ void IrisAudioProcessor::updateWeightsGaussian()
     const float lx = unitCoord(localAudioListener.currentX);
     const float ly = unitCoord(localAudioListener.currentY);
 
-    // A wall end that touches another wall (corner or T-junction) gets no edge
-    // fade, otherwise sound leaks through closed corners.
-    constexpr float joinTolerance = 0.01f;
-    constexpr float edgeFadeDist  = 0.03f;   // fade distance from a free wall end (room units)
+    // A wall end within joinTolerance of another wall (corner or T-junction) is
+    // treated as joined: for occlusion it is extended onto that wall, so the small
+    // gap left by hand-drawn walls doesn't leak, and it gets no edge fade, so closed
+    // rooms stay closed. Free ends fade over edgeFadeDist to avoid a hard switch as
+    // the listener passes the end of a wall. Openings narrower than joinTolerance
+    // are sealed. (The walls drawn on the map are not changed.)
+    constexpr float joinTolerance = 0.05f;
+    constexpr float edgeFadeDist  = 0.03f;   // room units
 
-    std::vector<std::pair<bool, bool>> joined(walls.size(), { false, false });
-    for (size_t i = 0; i < walls.size(); ++i)
+    struct Segment { float x1, y1, x2, y2; bool joined1 = false, joined2 = false; };
+    std::vector<Segment> segments;
+    segments.reserve(walls.size());
+
+    auto snapEnd = [&](size_t self, float x, float y, float& outX, float& outY)
+    {
+        float best = joinTolerance;
+        bool  found = false;
         for (size_t j = 0; j < walls.size(); ++j)
         {
-            if (i == j) continue;
-            if (walls[j].getDistanceToPoint(walls[i].x1, walls[i].y1) < joinTolerance) joined[i].first  = true;
-            if (walls[j].getDistanceToPoint(walls[i].x2, walls[i].y2) < joinTolerance) joined[i].second = true;
+            if (j == self) continue;
+            const auto& w = walls[j];
+            float cx, cy;
+            closestPointOnSegment(x, y, w.x1, w.y1, w.x2, w.y2, cx, cy);
+            const float d = std::sqrt(distSq(x, y, cx, cy));
+            if (d < best) { best = d; outX = cx; outY = cy; found = true; }
         }
+        return found;
+    };
+
+    for (size_t i = 0; i < walls.size(); ++i)
+    {
+        const auto& w = walls[i];
+        Segment seg { w.x1, w.y1, w.x2, w.y2 };
+        seg.joined1 = snapEnd(i, w.x1, w.y1, seg.x1, seg.y1);
+        seg.joined2 = snapEnd(i, w.x2, w.y2, seg.x2, seg.y2);
+        segments.push_back(seg);
+    }
 
     std::vector<std::pair<float, IRPoint*>> rawWeights;
     float maxWeight = 0.0f;
@@ -1551,17 +1575,18 @@ void IrisAudioProcessor::updateWeightsGaussian()
         for (size_t wi = 0; wi < walls.size(); ++wi)
         {
             const auto& wall = walls[wi];
+            const auto& seg  = segments[wi];
             float ix, iy, tWall;
             if (getIntersectionPoint(lx, ly, p.x, p.y,
-                                     wall.x1, wall.y1, wall.x2, wall.y2,
+                                     seg.x1, seg.y1, seg.x2, seg.y2,
                                      ix, iy, tWall))
             {
                 ++intersectionCount;
 
-                const float len = std::sqrt(distSq(wall.x1, wall.y1, wall.x2, wall.y2));
+                const float len = std::sqrt(distSq(seg.x1, seg.y1, seg.x2, seg.y2));
                 float edgeFade = 1.0f;
-                if (! joined[wi].first)  edgeFade = std::min(edgeFade, tWall * len / edgeFadeDist);
-                if (! joined[wi].second) edgeFade = std::min(edgeFade, (1.0f - tWall) * len / edgeFadeDist);
+                if (! seg.joined1) edgeFade = std::min(edgeFade, tWall * len / edgeFadeDist);
+                if (! seg.joined2) edgeFade = std::min(edgeFade, (1.0f - tWall) * len / edgeFadeDist);
                 edgeFade = juce::jlimit(0.0f, 1.0f, edgeFade);
 
                 const float transparency = sanitise(wall.attenuation, 0.05f, 0.0f, 1.0f);

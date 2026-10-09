@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-08 — V4.5.2: wall join tolerance 0.05, gaps bridged
+
+### Change
+- Wall ends within **0.05** room units of another wall (was 0.01) count as joined.
+- For occlusion, a joined end is now **extended onto the nearest point of that wall**. Hand-drawn walls that almost meet therefore don't leak through the gap; with the tolerance alone, the line from the listener could still pass through a gap up to 0.05 wide with no fade.
+- Joined ends get no edge fade. Free ends keep the 0.03 fade.
+- The walls drawn on the map are unchanged.
+- Openings narrower than 0.05 are now sealed. Doorways ≥ 0.05 stay open.
+- Version 4.5.2.
+
+### Tests (`IrisHarness walls2`, new)
+- Box whose walls stop 0.03 short of each corner, listener on the diagonal through a gap → occlusion 0.003 (sealed; two walls block). Straight out through a wall middle → 0.050.
+- 0.10 doorway: straight through → 1.000 (open). Behind a piece → 0.050.
+- Free wall end at x = 0.60, line at x = 0.565 / 0.58 / 0.59 / 0.599 / 0.62 → 0.050 / 0.367 / 0.683 / 0.968 / 1.000 (the fade is unchanged).
+- `n6`, `m5` unchanged.
+- ASan `walls2`, `churn`, `fjson`, `fstate`, `state`, `multi`: no errors.
+- `auval` passes; installed bundle loads as 4.5.2 (Universal).
+
+
 ## 2026-10-08 — V4.5.1: REAPER crash while moving listeners; Latch recording of other instances
 
 ### Report
